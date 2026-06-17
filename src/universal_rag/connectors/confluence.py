@@ -38,8 +38,25 @@ _BLANK_LINES = re.compile(r"\n{3,}")
 # Block-level tags whose boundaries should become line breaks; inline tags
 # (strong/em/a/span/code/…) are left alone so words don't get split apart.
 _BLOCK_TAGS = (
-    "p", "div", "li", "ul", "ol", "br", "tr", "td", "th", "table",
-    "blockquote", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6",
+    "p",
+    "div",
+    "li",
+    "ul",
+    "ol",
+    "br",
+    "tr",
+    "td",
+    "th",
+    "table",
+    "blockquote",
+    "section",
+    "article",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
 )
 
 

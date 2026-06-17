@@ -96,9 +96,7 @@ def test_full_ingestion_into_pgvector(monkeypatch: pytest.MonkeyPatch, config: A
     assert r.skipped == 0
 
     with get_session() as session:
-        rows = session.scalars(
-            select(Chunk).where(Chunk.project_id == PROJECT_ID)
-        ).all()
+        rows = session.scalars(select(Chunk).where(Chunk.project_id == PROJECT_ID)).all()
         assert len(rows) == r.chunks
         # embeddings are the right dimensionality and project-scoped
         assert all(len(list(c.embedding)) == 768 for c in rows)

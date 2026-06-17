@@ -30,8 +30,10 @@ def _load_app_config():
     if not path.exists():
         example = path.with_name("config.example.yaml")
         if example.exists():
-            rprint(f"[yellow]{path} not found — using {example.name}. "
-                   f"Copy it to {path.name} to customize.[/yellow]")
+            rprint(
+                f"[yellow]{path} not found — using {example.name}. "
+                f"Copy it to {path.name} to customize.[/yellow]"
+            )
             path = example
         else:
             rprint(f"[red]No config found at {path} (and no example beside it).[/red]")
@@ -79,9 +81,27 @@ def sync(
 
 
 @app.command()
-def query(project: str, text: str) -> None:
+def query(
+    project: str,
+    text: str,
+    k: int = typer.Option(8, help="Number of results to show"),
+    source: str | None = typer.Option(None, help="Limit to one source id"),
+) -> None:
     """Inspect hybrid retrieval results for a query."""
-    raise typer.Exit(code=_todo("query"))
+    from universal_rag.retrieval import HybridRetriever
+
+    retriever = HybridRetriever(top_k=k)
+    hits = retriever.search(text, project, source_ids=[source] if source else None)
+    if not hits:
+        rprint("[yellow]No matches (is the project ingested?).[/yellow]")
+        return
+    for i, h in enumerate(hits, 1):
+        snippet = " ".join(h.content.split())[:160]
+        title = h.title or "(untitled)"
+        rprint(f"[bold]{i}. {title}[/bold]  [dim]{h.source_id} · rrf={h.score:.4f}[/dim]")
+        rprint(f"   {snippet}")
+        if h.url:
+            rprint(f"   [blue]{h.url}[/blue]")
 
 
 @app.command()

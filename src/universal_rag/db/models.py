@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -104,14 +105,19 @@ class Chunk(Base):
     document: Mapped[Document] = relationship(back_populates="chunks")
 
     __table_args__ = (
-        # ANN index for semantic search; GIN/trgm for the keyword half of hybrid
-        # search are added in the Alembic migration (need raw DDL on `content`).
+        # HNSW ANN index for the semantic arm of hybrid search.
         Index(
             "ix_chunks_embedding_hnsw",
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 64},
             postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        # GIN functional index for the keyword arm (to_tsvector @@ websearch_to_tsquery).
+        Index(
+            "ix_chunks_content_fts",
+            text("to_tsvector('english', content)"),
+            postgresql_using="gin",
         ),
     )
 
