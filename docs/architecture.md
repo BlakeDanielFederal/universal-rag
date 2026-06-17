@@ -96,12 +96,29 @@ Ingestion fetches only items changed since the cursor, skips documents whose
 3. Renderers turn the one outline into Markdown / `.pptx` / `.docx`, keeping
    content and citations consistent across formats.
 
-## Suggested build order
+## Build progress
 
-1. `db-init` + Alembic migration (adds FTS/trgm indexes raw DDL).
-2. Connectors `fetch()` (start with one provider end-to-end).
-3. Chunking + ingestion pipeline + embedder wiring.
-4. Hybrid retrieval (semantic → +keyword → +rerank).
-5. Generation service + Outline prompt; then renderers.
-6. Flesh out FastAPI routers + FastMCP tools over the core.
+- [x] `db-init` (tables + pgvector(768) + HNSW). Alembic + FTS/trgm DDL still TODO.
+- [x] **Confluence Data Center connector** `fetch()` — CQL incremental, pagination,
+      storage→text, PAT bearer auth. (Jira/GitHub still stubbed.)
+- [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
+- [ ] Hybrid retrieval (semantic → +keyword → +rerank). ← **next slice**
+- [ ] Generation service + Outline prompt; then renderers.
+- [ ] FastAPI routers + FastMCP tools over the core (query + generate).
+
+### Confluence ingestion detail (implemented)
+
+```mermaid
+flowchart LR
+    CFG[config.yaml<br/>source.spaces] --> CONN
+    ENV[.env<br/>CONFLUENCE_BASE_URL + PAT] --> CONN
+    ST[(sync_state.cursor)] --> CONN[ConfluenceConnector]
+    CONN -->|CQL: space + lastmodified ≥ cursor| API[Confluence DC REST<br/>Bearer PAT]
+    API -->|paged content| PARSE[page_to_document<br/>storage XHTML → text]
+    PARSE --> HASH{content_hash<br/>changed?}
+    HASH -->|no| SKIP[skip]
+    HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
+    UP --> ADV[advance cursor = max updated_at]
+    ADV --> ST
+```
 ```
