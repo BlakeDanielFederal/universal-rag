@@ -102,8 +102,9 @@ Ingestion fetches only items changed since the cursor, skips documents whose
 - [x] **Confluence Data Center connector** `fetch()` — CQL incremental, pagination,
       storage→text, PAT bearer auth. (Jira/GitHub still stubbed.)
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
-- [ ] Hybrid retrieval (semantic → +keyword → +rerank). ← **next slice**
-- [ ] Generation service + Outline prompt; then renderers.
+- [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
+      rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
+- [ ] Generation service + Outline prompt; then renderers. ← **next slice**
 - [ ] FastAPI routers + FastMCP tools over the core (query + generate).
 
 ### Confluence ingestion detail (implemented)
@@ -121,4 +122,20 @@ flowchart LR
     UP --> ADV[advance cursor = max updated_at]
     ADV --> ST
 ```
+
+### Hybrid retrieval detail (implemented)
+
+```mermaid
+flowchart LR
+    Q[query] --> EQ[embed_query<br/>search_query:]
+    EQ --> SEM[semantic arm<br/>pgvector cosine / HNSW]
+    Q --> KW[keyword arm<br/>websearch_to_tsquery FTS / GIN]
+    SCOPE[project_id + source_ids<br/>+ metadata filters] --> SEM
+    SCOPE --> KW
+    SEM --> RRF[Reciprocal Rank Fusion]
+    KW --> RRF
+    RRF --> RR{RERANK_MODEL?}
+    RR -->|set| LLM[Ollama LLM judge]
+    RR -->|unset| TOPK[top_k RetrievedChunks]
+    LLM --> TOPK
 ```
