@@ -28,14 +28,19 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
     rerank_model: str = ""
     ollama_generation_model: str = "qwen2.5-coder:14b-instruct"
+    # nomic-embed-text quality depends on task prefixes; set empty for models
+    # (e.g. mxbai-embed-large) that don't use them.
+    embed_doc_prefix: str = "search_document: "
+    embed_query_prefix: str = "search_query: "
 
     # --- Generation provider ---
     llm_provider: str = "auto"  # auto | github_copilot | ollama
 
     # --- Connector creds (optional; only the ones in use need to be set) ---
-    atlassian_base_url: str = ""
-    atlassian_email: str = ""
-    atlassian_api_token: str = ""
+    # Confluence Data Center: Personal Access Token via `Authorization: Bearer`.
+    confluence_base_url: str = ""  # e.g. https://confluence.your-org.com
+    confluence_pat: str = ""
+    confluence_verify_ssl: bool = True  # set false only for internal/self-signed CAs
     github_token: str = ""
 
     @computed_field  # type: ignore[prop-decorator]

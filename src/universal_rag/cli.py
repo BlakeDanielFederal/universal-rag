@@ -62,7 +62,20 @@ def sync(
     project: str, source: str | None = typer.Option(None, help="Limit to one source id")
 ) -> None:
     """Run ingestion for a project (optionally a single source)."""
-    raise typer.Exit(code=_todo("sync"))
+    from universal_rag.ingestion import run_sync
+
+    results = run_sync(project, source, config=_load_app_config())
+    exit_code = 0
+    for r in results:
+        if r.status == "ok":
+            rprint(
+                f"[green]✓[/green] {r.source_id}: "
+                f"{r.documents} doc(s), {r.chunks} chunk(s), {r.skipped} unchanged"
+            )
+        else:
+            exit_code = 1
+            rprint(f"[red]✗ {r.source_id}: {r.error}[/red]")
+    raise typer.Exit(code=exit_code)
 
 
 @app.command()

@@ -24,9 +24,9 @@ projects:
     sources:
       - id: apollo-confluence
         provider: confluence
-        # Atlassian creds come from env (ATLASSIAN_*).
-        spaces: ["APOLLO"]          # Confluence space keys
-        include_labels: []          # optional page-label filter
+        # Confluence Data Center: base URL + PAT come from env (CONFLUENCE_*).
+        spaces: ["APOLLO", "APOLLODOCS"]  # Confluence space keys to index
+        include_labels: []                # optional: only pages with these labels
 
       - id: apollo-jira
         provider: jira

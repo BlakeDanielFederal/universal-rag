@@ -36,14 +36,21 @@ class Defaults(BaseModel):
 
 
 class SourceConfig(BaseModel):
+    # Provider-specific keys (spaces / projects / repos / include / ...) are kept
+    # loose and exposed via `options`, so each connector reads what it needs and
+    # new providers add keys without schema churn.
+    model_config = {"extra": "allow"}
+
     id: str
     provider: Provider
-    # Provider-specific keys (spaces / projects / repos / include / ...) are kept
-    # loose here and validated by each connector. Keeps the schema open for new
-    # providers without churn.
-    options: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"extra": "allow"}
+    @property
+    def options(self) -> dict[str, Any]:
+        """All provider-specific keys (everything beyond id/provider)."""
+        return dict(self.__pydantic_extra__ or {})
+
+    def opt(self, key: str, default: Any = None) -> Any:
+        return self.options.get(key, default)
 
 
 class ProjectConfig(BaseModel):
