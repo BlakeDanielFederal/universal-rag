@@ -1,0 +1,42 @@
+# --- Claude / agent tooling (local only) ---
+CLAUDE.md
+.claude/
+.serena/
+.mcp.json
+
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+config/config.yaml
+config/*.local.yaml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Data / artifacts ---
+data/
+output/
+*.pptx
+*.docx
+!docs/**/*.docx
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/

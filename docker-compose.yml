@@ -1,0 +1,25 @@
+# Stands up the data layer for Universal RAG.
+# Ollama is intentionally NOT containerized — it runs on the host so it can
+# use the Mac GPU (Metal). The app/services reach it at host.docker.internal.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: urag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-universal_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-urag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-extensions.sql:/docker-entrypoint-initdb.d/00-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urag} -d ${POSTGRES_DB:-universal_rag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

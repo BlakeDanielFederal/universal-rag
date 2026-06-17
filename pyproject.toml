@@ -1,0 +1,73 @@
+[project]
+name = "universal-rag"
+version = "0.1.0"
+description = "Local-first RAG framework that ingests business context from multiple service providers (Confluence, Jira, GitHub, ...) into a per-project vector store and drafts emails, memos, and presentations grounded in that context."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+
+dependencies = [
+    # --- Config & validation ---
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    # --- Persistence: Postgres + pgvector ---
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "alembic>=1.13",
+    # --- HTTP / connectors ---
+    "httpx>=0.27",
+    "tenacity>=8.3",          # retry/backoff for flaky provider APIs
+    "atlassian-python-api>=3.41",  # Confluence + Jira
+    "PyGithub>=2.3",          # GitHub
+    # --- Embeddings / LLM (local-first via Ollama) ---
+    "ollama>=0.3",
+    # --- Interfaces ---
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "fastmcp>=2.0",
+    "typer>=0.12",            # thin ops CLI (ingest/sync/generate)
+    # --- Output rendering ---
+    "python-pptx>=0.6.23",
+    "python-docx>=1.1",
+    "jinja2>=3.1",            # markdown/memo templating
+    # --- Observability ---
+    "structlog>=24.1",
+    "rich>=13.7",
+]
+
+[project.scripts]
+urag = "universal_rag.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/universal_rag"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true

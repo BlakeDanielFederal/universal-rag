@@ -1,0 +1,43 @@
+# ============================================================================
+# Universal RAG — project & source configuration.
+# Copy to `config/config.yaml`. Secrets are referenced by ${ENV_VAR} and
+# resolved from `.env` / the environment at load time (never inlined here).
+#
+# A "project workspace" is a first-class entity. Each project maps to one or
+# more sources across providers; every ingested chunk is tagged with the
+# project_id + source_id so retrieval scopes cleanly across all providers.
+# ============================================================================
+
+defaults:
+  embedding_model: nomic-embed-text
+  chunk:
+    max_tokens: 512
+    overlap_tokens: 64
+  sync:
+    strategy: incremental   # incremental | manual
+    schedule: "0 * * * *"   # cron; used by the scheduler when enabled
+
+projects:
+  - id: apollo
+    name: "Project Apollo"
+    description: "Customer-facing analytics revamp."
+    sources:
+      - id: apollo-confluence
+        provider: confluence
+        # Atlassian creds come from env (ATLASSIAN_*).
+        spaces: ["APOLLO"]          # Confluence space keys
+        include_labels: []          # optional page-label filter
+
+      - id: apollo-jira
+        provider: jira
+        projects: ["APOL"]          # Jira project keys
+        jql_extra: ""               # optional extra JQL constraint
+
+      - id: apollo-github
+        provider: github
+        repos: ["your-org/apollo-web", "your-org/apollo-api"]
+        include:                    # which GitHub object types to ingest
+          - pull_requests
+          - issues
+          - releases
+          - readme
