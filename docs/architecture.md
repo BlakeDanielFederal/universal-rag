@@ -12,7 +12,7 @@ provider or renderer code in this repo.
 flowchart TD
     subgraph Sources["Source providers"]
         CONF[Confluence<br/>roadmaps, specs]
-        JIRA[Jira<br/>sprints, on-deck]:::future
+        JIRA[Jira<br/>sprints, on-deck]
         GH[GitHub<br/>PRs, releases]:::future
         FUTURE[SharePoint / OneDrive<br/>future]:::future
     end
@@ -96,14 +96,16 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
 
 - [x] `db-init` (tables + pgvector(768) + HNSW). Alembic + FTS/trgm DDL still TODO.
 - [x] **Confluence Data Center connector** `fetch()` — CQL incremental, pagination,
-      storage→text, PAT bearer auth. (Jira/GitHub still stubbed.)
+      storage→text, PAT bearer auth.
+- [x] **Jira Data Center connector** `fetch()` — JQL incremental (`updated >=`),
+      startAt/maxResults pagination, summary+description+comments, PAT bearer auth.
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
 - [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
       rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
 - [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
       and `list_projects` / `sync_project` / `query_project` tools.
 - [x] **Generation removed** — out of scope; consuming clients own it.
-- [ ] Jira + GitHub connectors. ← **next slices**
+- [ ] GitHub connector. ← **next slice**
 - [ ] SharePoint / OneDrive (MS Graph) connector.
 
 ### Confluence ingestion detail (implemented)
@@ -115,6 +117,22 @@ flowchart LR
     ST[(sync_state.cursor)] --> CONN[ConfluenceConnector]
     CONN -->|CQL: space + lastmodified ≥ cursor| API[Confluence DC REST<br/>Bearer PAT]
     API -->|paged content| PARSE[page_to_document<br/>storage XHTML → text]
+    PARSE --> HASH{content_hash<br/>changed?}
+    HASH -->|no| SKIP[skip]
+    HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
+    UP --> ADV[advance cursor = max updated_at]
+    ADV --> ST
+```
+
+### Jira ingestion detail (implemented)
+
+```mermaid
+flowchart LR
+    CFG[config.yaml<br/>source.projects + jql_extra] --> CONN
+    ENV[.env<br/>JIRA_BASE_URL + PAT] --> CONN
+    ST[(sync_state.cursor)] --> CONN[JiraConnector]
+    CONN -->|JQL: project in (...) + updated ≥ cursor| API[Jira DC REST v2<br/>Bearer PAT]
+    API -->|paged issues| PARSE[issue_to_document<br/>summary+description+comments]
     PARSE --> HASH{content_hash<br/>changed?}
     HASH -->|no| SKIP[skip]
     HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
