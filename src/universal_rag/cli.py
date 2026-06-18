@@ -4,8 +4,10 @@ urag projects                       list configured projects
 urag db-init                        create tables (dev; Alembic for real migrations)
 urag sync <project> [--source ID]   run ingestion
 urag query <project> "<text>"       hybrid retrieval
+urag migrate [revision]             run Alembic migrations (default head)
 urag serve-api                      run FastAPI (uvicorn)
 urag serve-mcp                      run FastMCP server
+urag serve-scheduler                run the incremental-sync scheduler
 """
 
 from __future__ import annotations
@@ -46,12 +48,22 @@ def projects() -> None:
 
 @app.command("db-init")
 def db_init() -> None:
-    """Create all tables (dev convenience; use Alembic for migrations)."""
-    from universal_rag.db.models import Base
-    from universal_rag.db.session import get_engine
+    """Create/upgrade the schema by running Alembic migrations to head."""
+    from universal_rag.db.migrate import upgrade
 
-    Base.metadata.create_all(get_engine())
-    rprint("[green]Tables created.[/green]")
+    upgrade("head")
+    rprint("[green]Schema is at head.[/green]")
+
+
+@app.command()
+def migrate(
+    revision: str = typer.Argument("head", help="Target revision (default: head)"),
+) -> None:
+    """Run Alembic migrations to a revision (default head)."""
+    from universal_rag.db.migrate import upgrade
+
+    upgrade(revision)
+    rprint(f"[green]Migrated to {revision}.[/green]")
 
 
 @app.command()
@@ -113,6 +125,17 @@ def serve_mcp() -> None:
     from universal_rag.mcp.server import mcp
 
     mcp.run()
+
+
+@app.command("serve-scheduler")
+def serve_scheduler() -> None:
+    """Run the incremental-sync scheduler (blocks; cron cadence from config)."""
+    from universal_rag.scheduler import SyncScheduler
+
+    try:
+        SyncScheduler(_load_app_config()).start()
+    except (KeyboardInterrupt, SystemExit):
+        rprint("[yellow]Scheduler stopped.[/yellow]")
 
 
 if __name__ == "__main__":
