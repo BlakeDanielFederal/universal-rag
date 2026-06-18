@@ -15,6 +15,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -26,11 +27,13 @@ from universal_rag.config.schema import (
     SourceConfig,
 )
 from universal_rag.connectors import SyncCursor, get_connector
-from universal_rag.connectors.base import SourceDocument
+from universal_rag.connectors.base import Connector, SourceDocument
 from universal_rag.db.models import Chunk, Document, Project, Source, SyncState
 from universal_rag.db.session import get_session
 from universal_rag.embeddings import OllamaEmbedder
 from universal_rag.ingestion.chunking import chunk_text
+
+log = structlog.get_logger("universal_rag.ingestion")
 
 
 @dataclass(slots=True)
@@ -39,6 +42,7 @@ class SourceSyncResult:
     documents: int = 0
     chunks: int = 0
     skipped: int = 0
+    deleted: int = 0  # docs pruned because they no longer exist at the source
     status: str = "ok"  # ok | error
     error: str = ""
 
@@ -125,8 +129,48 @@ class IngestionPipeline:
             )
         return ("written", len(text_chunks))
 
+    def _prune(
+        self,
+        session: Session,
+        connector: Connector,
+        source: SourceConfig,
+        result: SourceSyncResult,
+    ) -> None:
+        """Hard-delete documents whose external_id no longer exists at the source.
+
+        Safety: skip when the connector can't enumerate, the enumeration fails, or the
+        live set is empty — never delete on incomplete/uncertain data.
+        """
+        try:
+            live = connector.list_external_ids()
+        except Exception as exc:
+            log.warning("prune.skipped", source=source.id, reason=f"enumeration failed: {exc}")
+            return
+        if live is None:
+            return  # provider doesn't support enumeration → never prune
+        if not live:
+            log.warning("prune.skipped", source=source.id, reason="empty live id set")
+            return
+
+        stale = list(
+            session.scalars(
+                select(Document.id).where(
+                    Document.source_id == source.id, Document.external_id.not_in(live)
+                )
+            ).all()
+        )
+        if stale:
+            session.execute(delete(Chunk).where(Chunk.document_id.in_(stale)))
+            session.execute(delete(Document).where(Document.id.in_(stale)))
+        result.deleted = len(stale)
+
     def run(
-        self, session: Session, project: ProjectConfig, source: SourceConfig
+        self,
+        session: Session,
+        project: ProjectConfig,
+        source: SourceConfig,
+        *,
+        prune: bool = True,
     ) -> SourceSyncResult:
         result = SourceSyncResult(source_id=source.id)
         state = session.get(SyncState, source.id)
@@ -158,6 +202,9 @@ class IngestionPipeline:
             state.last_run_at = datetime.now(UTC)
             return result
 
+        # Reconcile deletions only after a clean fetch (safety rule #1).
+        if prune:
+            self._prune(session, connector, source, result)
         if max_updated is not None:
             state.cursor = max_updated.isoformat()
         state.last_status = "ok"
@@ -170,8 +217,13 @@ def run_sync(
     source_id: str | None = None,
     *,
     config: AppConfig | None = None,
+    prune: bool | None = None,
 ) -> list[SourceSyncResult]:
-    """Sync one project (optionally a single source) from config into pgvector."""
+    """Sync one project (optionally a single source) from config into pgvector.
+
+    `prune` controls deletion reconciliation: None (default) uses each source's
+    `prune` option (default True); True/False forces it for all synced sources.
+    """
     cfg = config or load_app_config()
     project = cfg.project(project_id)
     if project is None:
@@ -186,8 +238,9 @@ def run_sync(
     pipeline = IngestionPipeline(chunk=cfg.defaults.chunk)
     results: list[SourceSyncResult] = []
     for source in sources:
+        effective_prune = prune if prune is not None else bool(source.opt("prune", True))
         # Each source gets its own transaction so a failure is isolated.
         with get_session() as session:
             ensure_project(session, project)
-            results.append(pipeline.run(session, project, source))
+            results.append(pipeline.run(session, project, source, prune=effective_prune))
     return results

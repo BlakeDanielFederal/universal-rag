@@ -277,6 +277,35 @@ class GitHubConnector(Connector):
         finally:
             client.close()
 
+    def list_external_ids(self) -> set[str]:
+        client = self._client()
+        include = set(self.source.opt("include") or _DEFAULT_INCLUDE)
+        page_size = int(self.source.opt("page_size", 100))
+        ids: set[str] = set()
+        try:
+            for repo in self._repos():
+                owner, name = split_repo(repo)
+
+                if include & {"issues", "pull_requests"}:
+                    for item in client.iter_issues(owner, name, None, page_size):  # full scope
+                        is_pr = "pull_request" in item
+                        if is_pr and "pull_requests" not in include:
+                            continue
+                        if not is_pr and "issues" not in include:
+                            continue
+                        kind = "pr" if is_pr else "issue"
+                        ids.add(f"{repo}#{kind}-{item.get('number')}")
+
+                if "releases" in include:
+                    for rel in client.iter_releases(owner, name, page_size):
+                        ids.add(f"{repo}#release-{rel.get('id')}")
+
+                if "readme" in include and client.get_readme(owner, name):
+                    ids.add(f"{repo}#readme")
+        finally:
+            client.close()
+        return ids
+
     def healthcheck(self) -> bool:
         try:
             self._client().current_user()

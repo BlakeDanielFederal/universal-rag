@@ -220,6 +220,19 @@ class JiraConnector(Connector):
         finally:
             client.close()
 
+    def list_external_ids(self) -> set[str]:
+        client = self._client()
+        jql = build_jql(self._projects(), None, self.source.opt("jql_extra"))  # full scope
+        page_size = int(self.source.opt("page_size", 50))
+        try:
+            return {
+                issue["key"]
+                for issue in client.iter_search(jql, "key", page_size)  # keys only
+                if issue.get("key")
+            }
+        finally:
+            client.close()
+
     def healthcheck(self) -> bool:
         try:
             self._client().current_user()

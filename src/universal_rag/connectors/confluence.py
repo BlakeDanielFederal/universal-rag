@@ -227,6 +227,20 @@ class ConfluenceConnector(Connector):
         finally:
             client.close()
 
+    def list_external_ids(self) -> set[str]:
+        client = self._client()
+        labels = self.source.opt("include_labels") or []
+        page_size = int(self.source.opt("page_size", 50))
+        ids: set[str] = set()
+        try:
+            for space in self._spaces():
+                cql = build_cql(space, None, labels)  # full scope, no cursor
+                for page in client.iter_search(cql, "", page_size):  # ids only, no body
+                    ids.add(str(page.get("id", "")))
+        finally:
+            client.close()
+        return ids
+
     def healthcheck(self) -> bool:
         try:
             self._client().current_user()

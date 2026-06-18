@@ -17,6 +17,10 @@ defaults:
     strategy: incremental   # incremental | manual
     schedule: "0 * * * *"   # cron; used by the scheduler when enabled
 
+# Every source supports `prune: true|false` (default true): after a successful
+# sync, items deleted at the source are removed from the store. Set `prune: false`
+# on a source to disable that reconciliation (e.g. a very large, costly listing).
+
 projects:
   - id: apollo
     name: "Project Apollo"

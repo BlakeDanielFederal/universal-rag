@@ -336,6 +336,18 @@ class SharePointConnector(Connector):
         finally:
             client.close()
 
+    def list_external_ids(self) -> set[str]:
+        client = self._client()
+        page_size = int(self.source.opt("page_size", 200))
+        ids: set[str] = set()
+        try:
+            for drive_id, _kind in self._resolve_drives(client):
+                for item in client.iter_drive_items(drive_id, page_size):
+                    ids.add(f"{drive_id}:{item['id']}")
+        finally:
+            client.close()
+        return ids
+
     def healthcheck(self) -> bool:
         try:
             self._client()._get("/sites/root")

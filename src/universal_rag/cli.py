@@ -68,18 +68,25 @@ def migrate(
 
 @app.command()
 def sync(
-    project: str, source: str | None = typer.Option(None, help="Limit to one source id")
+    project: str,
+    source: str | None = typer.Option(None, help="Limit to one source id"),
+    prune: bool | None = typer.Option(
+        None,
+        "--prune/--no-prune",
+        help="Override the per-source prune setting (delete items removed at the source)",
+    ),
 ) -> None:
     """Run ingestion for a project (optionally a single source)."""
     from universal_rag.ingestion import run_sync
 
-    results = run_sync(project, source, config=_load_app_config())
+    results = run_sync(project, source, config=_load_app_config(), prune=prune)
     exit_code = 0
     for r in results:
         if r.status == "ok":
             rprint(
                 f"[green]✓[/green] {r.source_id}: "
-                f"{r.documents} doc(s), {r.chunks} chunk(s), {r.skipped} unchanged"
+                f"{r.documents} doc(s), {r.chunks} chunk(s), {r.skipped} unchanged, "
+                f"{r.deleted} deleted"
             )
         else:
             exit_code = 1

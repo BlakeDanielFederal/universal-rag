@@ -59,6 +59,7 @@ def _run_job(config: AppConfig, spec: JobSpec) -> None:
                 documents=r.documents,
                 chunks=r.chunks,
                 skipped=r.skipped,
+                deleted=r.deleted,
                 error=r.error or None,
             )
     except Exception as exc:  # a bad run must not kill the scheduler

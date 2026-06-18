@@ -51,6 +51,17 @@ class Connector(abc.ABC):
         """Yield documents; if `cursor` is set, only those changed since it."""
         raise NotImplementedError
 
+    def list_external_ids(self) -> set[str] | None:
+        """All current external_ids for this source's full scope (ids only, no
+        bodies, ignoring the cursor) — used to prune deleted items.
+
+        Returns None when the provider can't enumerate (the source is then never
+        pruned). MUST raise on a partial/failed enumeration so the caller can skip
+        pruning rather than delete on incomplete data. The returned strings must
+        match `fetch()`'s `SourceDocument.external_id` exactly.
+        """
+        return None
+
     def healthcheck(self) -> bool:
         """Cheap auth/connectivity probe. Override per provider."""
         return True
