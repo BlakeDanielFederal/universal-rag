@@ -45,6 +45,7 @@ flowchart TD
         API[FastAPI REST<br/>projects / sync / query]
         MCP[FastMCP server<br/>list/sync/query_project]
         CLI[urag CLI]
+        SCHED[Scheduler<br/>APScheduler cron]
     end
 
     CLIENT[Consuming client<br/>owns generation]:::future
@@ -112,7 +113,9 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
 - [x] **Generation removed** — out of scope; consuming clients own it.
 - [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); deletion handling; Graph
       `/delta`. ← **next slices**
-- [ ] Alembic migrations; scheduler for incremental polling.
+- [x] **Alembic migrations** (`0001_initial`; `db-init` = `alembic upgrade head`).
+- [x] **In-process scheduler** (`scheduler.py` / `urag serve-scheduler`) — runs each
+      incremental source's `run_sync` on its config cron via APScheduler.
 
 ### Confluence ingestion detail (implemented)
 

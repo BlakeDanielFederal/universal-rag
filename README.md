@@ -44,12 +44,18 @@ docker compose up -d
 # 4. Pull the local embedding model
 ollama pull nomic-embed-text
 
-# 5. Create tables, ingest, and query
-uv run urag db-init
+# 5. Create/upgrade the schema (runs Alembic migrations), ingest, and query
+uv run urag db-init                         # = alembic upgrade head
 uv run urag projects
 uv run urag sync <project> --source <source-id>
 uv run urag query <project> "what's on deck for next sprint?"
 uv run pytest
+```
+
+To keep sources fresh on a cron cadence (from `config.yaml`'s `sync.schedule`):
+
+```bash
+uv run urag serve-scheduler   # in-process daemon; runs incremental syncs on schedule
 ```
 
 ## Consuming retrieval
