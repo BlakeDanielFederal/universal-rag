@@ -13,8 +13,8 @@ from universal_rag.config.schema import load_config
 def test_package_imports() -> None:
     import universal_rag  # noqa: F401
     from universal_rag.api.app import create_app
-    from universal_rag.generation.outline import Outline  # noqa: F401
-    from universal_rag.llm import get_provider  # noqa: F401
+    from universal_rag.mcp.server import mcp  # noqa: F401
+    from universal_rag.retrieval import HybridRetriever  # noqa: F401
 
     assert create_app().title == "Universal RAG"
 

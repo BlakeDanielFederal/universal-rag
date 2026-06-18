@@ -18,13 +18,12 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from universal_rag.config import get_settings
+from universal_rag.config import load_app_config
 from universal_rag.config.schema import (
     AppConfig,
     ChunkConfig,
     ProjectConfig,
     SourceConfig,
-    load_config,
 )
 from universal_rag.connectors import SyncCursor, get_connector
 from universal_rag.connectors.base import SourceDocument
@@ -173,7 +172,7 @@ def run_sync(
     config: AppConfig | None = None,
 ) -> list[SourceSyncResult]:
     """Sync one project (optionally a single source) from config into pgvector."""
-    cfg = config or load_config(get_settings().config_path)
+    cfg = config or load_app_config()
     project = cfg.project(project_id)
     if project is None:
         raise ValueError(f"Unknown project '{project_id}'")

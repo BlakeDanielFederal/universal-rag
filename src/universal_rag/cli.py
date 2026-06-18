@@ -3,8 +3,7 @@
 urag projects                       list configured projects
 urag db-init                        create tables (dev; Alembic for real migrations)
 urag sync <project> [--source ID]   run ingestion
-urag query <project> "<text>"       inspect retrieval
-urag generate <project> "<prompt>" --type email|memo|presentation
+urag query <project> "<text>"       hybrid retrieval
 urag serve-api                      run FastAPI (uvicorn)
 urag serve-mcp                      run FastMCP server
 """
@@ -21,23 +20,19 @@ app = typer.Typer(
 
 def _load_app_config():
     """Load config.yaml, falling back to the committed example with a warning."""
-    from pathlib import Path
-
-    from universal_rag.config import get_settings
+    from universal_rag.config import default_config_path, get_settings
     from universal_rag.config.schema import load_config
 
-    path = Path(get_settings().config_path)
-    if not path.exists():
-        example = path.with_name("config.example.yaml")
-        if example.exists():
-            rprint(
-                f"[yellow]{path} not found — using {example.name}. "
-                f"Copy it to {path.name} to customize.[/yellow]"
-            )
-            path = example
-        else:
-            rprint(f"[red]No config found at {path} (and no example beside it).[/red]")
-            raise typer.Exit(code=1)
+    try:
+        path = default_config_path()
+    except FileNotFoundError as exc:
+        rprint(f"[red]{exc}.[/red]")
+        raise typer.Exit(code=1) from exc
+    if str(path) != get_settings().config_path:
+        rprint(
+            f"[yellow]{get_settings().config_path} not found — using {path.name}. "
+            f"Copy it to config.yaml to customize.[/yellow]"
+        )
     return load_config(path)
 
 
@@ -104,16 +99,6 @@ def query(
             rprint(f"   [blue]{h.url}[/blue]")
 
 
-@app.command()
-def generate(
-    project: str,
-    prompt: str,
-    type: str = typer.Option("email", help="email | memo | presentation"),
-) -> None:
-    """Generate a grounded draft artifact."""
-    raise typer.Exit(code=_todo("generate"))
-
-
 @app.command("serve-api")
 def serve_api(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run the FastAPI server."""
@@ -128,11 +113,6 @@ def serve_mcp() -> None:
     from universal_rag.mcp.server import mcp
 
     mcp.run()
-
-
-def _todo(name: str) -> int:
-    rprint(f"[yellow]'{name}' is scaffolded but not implemented yet.[/yellow]")
-    return 1
 
 
 if __name__ == "__main__":

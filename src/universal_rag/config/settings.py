@@ -23,18 +23,16 @@ class Settings(BaseSettings):
     postgres_password: str = "change-me"
     database_url: str | None = None  # explicit override wins
 
-    # --- Ollama ---
+    # --- Ollama (embeddings + optional retrieval reranker) ---
     ollama_host: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
+    # Optional retrieval reranker: an Ollama chat model used as a relevance judge.
+    # Blank -> no reranking (RRF order is used as-is).
     rerank_model: str = ""
-    ollama_generation_model: str = "qwen2.5-coder:14b-instruct"
     # nomic-embed-text quality depends on task prefixes; set empty for models
     # (e.g. mxbai-embed-large) that don't use them.
     embed_doc_prefix: str = "search_document: "
     embed_query_prefix: str = "search_query: "
-
-    # --- Generation provider ---
-    llm_provider: str = "auto"  # auto | github_copilot | ollama
 
     # --- Connector creds (optional; only the ones in use need to be set) ---
     # Confluence Data Center: Personal Access Token via `Authorization: Bearer`.

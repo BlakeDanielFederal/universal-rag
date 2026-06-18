@@ -1,7 +1,10 @@
 # Architecture
 
 Universal RAG ingests project context from multiple providers into a per-project
-pgvector store, then generates citation-grounded business communications.
+pgvector store and serves **project-scoped, citation-ready hybrid retrieval**.
+Its responsibility ends at retrieval — **generation is the consuming client's
+domain** (clients call `/query` and prompt their own model). There is no LLM
+provider or renderer code in this repo.
 
 ## Component / data flow
 
@@ -9,8 +12,8 @@ pgvector store, then generates citation-grounded business communications.
 flowchart TD
     subgraph Sources["Source providers"]
         CONF[Confluence<br/>roadmaps, specs]
-        JIRA[Jira<br/>sprints, on-deck]
-        GH[GitHub<br/>PRs, releases]
+        JIRA[Jira<br/>sprints, on-deck]:::future
+        GH[GitHub<br/>PRs, releases]:::future
         FUTURE[SharePoint / OneDrive<br/>future]:::future
     end
 
@@ -27,34 +30,24 @@ flowchart TD
         PROJ[(projects)]
         SRC[(sources)]
         DOC[(documents)]
-        CH[(chunks + embedding<br/>HNSW + FTS/trgm)]
+        CH[(chunks + embedding<br/>HNSW + FTS GIN)]
         SYNC[(sync_state cursors)]
     end
 
     subgraph Retrieval["Hybrid retrieval"]
         VEC[Semantic<br/>pgvector cosine]
         KW[Keyword<br/>Postgres FTS]
-        RRF[Fuse RRF + rerank]
-    end
-
-    subgraph Gen["Generation"]
-        LLM{LLM provider<br/>auto-select}
-        COP[GitHub Copilot CLI<br/>default]
-        OLL[Ollama<br/>fallback]
-        OUT[Outline JSON<br/>+ citations]
-    end
-
-    subgraph Render["Renderers"]
-        MD[Markdown<br/>email/memo]
-        PPTX[python-pptx<br/>.pptx]
-        DOCX[python-docx<br/>.docx]
+        RRF[Fuse RRF + optional rerank]
+        HITS[Ranked, cited chunks<br/>JSON]
     end
 
     subgraph Interfaces["Interfaces (shared core)"]
-        API[FastAPI REST]
-        MCP[FastMCP server]
+        API[FastAPI REST<br/>projects / sync / query]
+        MCP[FastMCP server<br/>list/sync/query_project]
         CLI[urag CLI]
     end
+
+    CLIENT[Consuming client<br/>owns generation]:::future
 
     CONF & JIRA & GH & FUTURE --> BASE
     BASE --> CHUNK --> EMB --> CH
@@ -62,14 +55,11 @@ flowchart TD
     PROJ --> SRC --> DOC --> CH
     SRC --> SYNC
 
-    CH --> VEC & KW --> RRF --> LLM
-    LLM -.prefers.-> COP
-    LLM -.falls back.-> OLL
-    LLM --> OUT --> MD & PPTX & DOCX
+    CH --> VEC & KW --> RRF --> HITS
 
     Interfaces --> Ingest
     Interfaces --> Retrieval
-    Interfaces --> Gen
+    HITS --> API & MCP --> CLIENT
 
     classDef future stroke-dasharray: 5 5,opacity:0.6;
 ```
@@ -88,13 +78,19 @@ Each source has a `sync_state` cursor (typically a last-modified timestamp).
 Ingestion fetches only items changed since the cursor, skips documents whose
 `content_hash` is unchanged, re-embeds the rest, and advances the cursor.
 
-## Generation flow
+## Retrieval surface (where this framework ends)
 
-1. `HybridRetriever.search(query, project_id)` → top-K grounded chunks.
-2. LLM (Copilot if available, else Ollama) produces a structured **`Outline`**
-   with per-claim **citations** back to source chunks.
-3. Renderers turn the one outline into Markdown / `.pptx` / `.docx`, keeping
-   content and citations consistent across formats.
+`HybridRetriever.search(query, project_id)` returns top-K grounded chunks, each
+carrying `title` / `url` / `source_id` / `content` / `score`. That payload is
+exposed verbatim over:
+
+- **REST** — `POST /projects/{id}/query` (and `.../sync`, `GET /projects`)
+- **MCP** — `query_project` / `sync_project` / `list_projects`
+- **CLI** — `urag query <project> "<text>"`
+
+A consuming client takes those cited chunks and does whatever it needs (draft an
+email, memo, deck, answer a question). **Generation lives entirely on the client
+side** — by design, this repo neither prompts an LLM nor renders artifacts.
 
 ## Build progress
 
@@ -104,8 +100,11 @@ Ingestion fetches only items changed since the cursor, skips documents whose
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
 - [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
       rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
-- [ ] Generation service + Outline prompt; then renderers. ← **next slice**
-- [ ] FastAPI routers + FastMCP tools over the core (query + generate).
+- [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
+      and `list_projects` / `sync_project` / `query_project` tools.
+- [x] **Generation removed** — out of scope; consuming clients own it.
+- [ ] Jira + GitHub connectors. ← **next slices**
+- [ ] SharePoint / OneDrive (MS Graph) connector.
 
 ### Confluence ingestion detail (implemented)
 

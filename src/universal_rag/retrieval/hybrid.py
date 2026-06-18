@@ -9,6 +9,7 @@ calibration between the two very different scoring scales.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,7 +71,7 @@ class HybridRetriever:
         self.reranker = reranker or get_reranker()
 
     def _conditions(
-        self, project_id: str, source_ids: list[str] | None, filters: dict[str, object] | None
+        self, project_id: str, source_ids: list[str] | None, filters: Mapping[str, object] | None
     ) -> list[ColumnElement[bool]]:
         conds: list[ColumnElement[bool]] = [Chunk.project_id == project_id]
         if source_ids:
@@ -106,7 +107,7 @@ class HybridRetriever:
         project_id: str,
         *,
         source_ids: list[str] | None = None,
-        filters: dict[str, object] | None = None,
+        filters: Mapping[str, object] | None = None,
     ) -> list[RetrievedChunk]:
         if not query.strip():
             return []
