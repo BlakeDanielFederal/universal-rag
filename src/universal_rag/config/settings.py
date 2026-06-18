@@ -43,7 +43,10 @@ class Settings(BaseSettings):
     jira_base_url: str = ""  # e.g. https://jira.your-org.com
     jira_pat: str = ""
     jira_verify_ssl: bool = True
+    # GitHub: PAT (classic or fine-grained) via `Authorization: Bearer`.
+    # api_url is https://api.github.com for github.com, or https://<host>/api/v3 for GHE.
     github_token: str = ""
+    github_api_url: str = "https://api.github.com"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
