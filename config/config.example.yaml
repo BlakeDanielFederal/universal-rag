@@ -30,8 +30,10 @@ projects:
 
       - id: apollo-jira
         provider: jira
-        projects: ["APOL"]          # Jira project keys
-        jql_extra: ""               # optional extra JQL constraint
+        # Jira Data Center: base URL + PAT come from env (JIRA_*).
+        projects: ["APOL"]          # Jira project keys to index
+        jql_extra: ""               # optional extra JQL ANDed onto the query
+        include_comments: true      # fold issue comments into the indexed text
 
       - id: apollo-github
         provider: github

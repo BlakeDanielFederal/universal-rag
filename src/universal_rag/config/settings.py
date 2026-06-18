@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     confluence_base_url: str = ""  # e.g. https://confluence.your-org.com
     confluence_pat: str = ""
     confluence_verify_ssl: bool = True  # set false only for internal/self-signed CAs
+    # Jira Data Center: Personal Access Token via `Authorization: Bearer`.
+    jira_base_url: str = ""  # e.g. https://jira.your-org.com
+    jira_pat: str = ""
+    jira_verify_ssl: bool = True
     github_token: str = ""
 
     @computed_field  # type: ignore[prop-decorator]
