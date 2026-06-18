@@ -43,3 +43,13 @@ projects:
           - issues
           - releases
           - readme
+
+      - id: apollo-sharepoint
+        provider: sharepoint
+        # Microsoft Graph: app creds come from env (MSGRAPH_*).
+        sites:                      # SharePoint sites as "host:/sites/Path"
+          - "contoso.sharepoint.com:/sites/Apollo"
+        onedrive_users: []          # optional: OneDrive owners by UPN, e.g. "ada@contoso.com"
+        # Optional tuning (sensible defaults shown):
+        # include_extensions: [".docx", ".pdf", ".pptx", ".md", ".txt", ".html", ".csv"]
+        # max_file_mb: 10           # skip files larger than this

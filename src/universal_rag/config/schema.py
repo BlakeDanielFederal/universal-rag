@@ -14,7 +14,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field
 
-Provider = Literal["confluence", "jira", "github"]
+Provider = Literal["confluence", "jira", "github", "sharepoint"]
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 

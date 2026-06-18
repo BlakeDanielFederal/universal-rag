@@ -10,6 +10,7 @@ _REGISTRY: dict[str, str] = {
     "confluence": "universal_rag.connectors.confluence:ConfluenceConnector",
     "jira": "universal_rag.connectors.jira:JiraConnector",
     "github": "universal_rag.connectors.github:GitHubConnector",
+    "sharepoint": "universal_rag.connectors.sharepoint:SharePointConnector",
 }
 
 

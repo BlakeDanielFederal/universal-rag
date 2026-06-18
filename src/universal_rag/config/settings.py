@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # api_url is https://api.github.com for github.com, or https://<host>/api/v3 for GHE.
     github_token: str = ""
     github_api_url: str = "https://api.github.com"
+    # Microsoft Graph (SharePoint/OneDrive): app-only client-credentials flow.
+    # Needs an Azure AD app with admin-consented Sites.Read.All + Files.Read.All.
+    msgraph_tenant_id: str = ""
+    msgraph_client_id: str = ""
+    msgraph_client_secret: str = ""
+    msgraph_authority: str = "https://login.microsoftonline.com"
+    msgraph_base_url: str = "https://graph.microsoft.com/v1.0"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
