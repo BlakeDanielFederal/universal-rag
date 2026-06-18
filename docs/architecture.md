@@ -13,7 +13,7 @@ flowchart TD
     subgraph Sources["Source providers"]
         CONF[Confluence<br/>roadmaps, specs]
         JIRA[Jira<br/>sprints, on-deck]
-        GH[GitHub<br/>PRs, releases]:::future
+        GH[GitHub<br/>PRs, releases]
         FUTURE[SharePoint / OneDrive<br/>future]:::future
     end
 
@@ -99,14 +99,16 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
       storage→text, PAT bearer auth.
 - [x] **Jira Data Center connector** `fetch()` — JQL incremental (`updated >=`),
       startAt/maxResults pagination, summary+description+comments, PAT bearer auth.
+- [x] **GitHub connector** `fetch()` — PRs/issues (issues endpoint `?since`),
+      releases, README; page-increment pagination, PAT bearer auth.
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
 - [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
       rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
 - [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
       and `list_projects` / `sync_project` / `query_project` tools.
 - [x] **Generation removed** — out of scope; consuming clients own it.
-- [ ] GitHub connector. ← **next slice**
-- [ ] SharePoint / OneDrive (MS Graph) connector.
+- [ ] SharePoint / OneDrive (MS Graph) connector. ← **next slice**
+- [ ] Alembic migrations; scheduler for incremental polling.
 
 ### Confluence ingestion detail (implemented)
 
@@ -133,6 +135,24 @@ flowchart LR
     ST[(sync_state.cursor)] --> CONN[JiraConnector]
     CONN -->|JQL: project in (...) + updated ≥ cursor| API[Jira DC REST v2<br/>Bearer PAT]
     API -->|paged issues| PARSE[issue_to_document<br/>summary+description+comments]
+    PARSE --> HASH{content_hash<br/>changed?}
+    HASH -->|no| SKIP[skip]
+    HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
+    UP --> ADV[advance cursor = max updated_at]
+    ADV --> ST
+```
+
+### GitHub ingestion detail (implemented)
+
+```mermaid
+flowchart LR
+    CFG[config.yaml<br/>source.repos + include] --> CONN
+    ENV[.env<br/>GITHUB_TOKEN + API_URL] --> CONN
+    ST[(sync_state.cursor)] --> CONN[GitHubConnector]
+    CONN -->|issues ?since cursor| ISS[issues endpoint<br/>issues + PRs]
+    CONN -->|releases / readme| OBJ[releases + README<br/>filtered / base64]
+    ISS & OBJ --> API[GitHub REST<br/>Bearer PAT]
+    API --> PARSE[issue_or_pr / release / readme<br/>_to_document]
     PARSE --> HASH{content_hash<br/>changed?}
     HASH -->|no| SKIP[skip]
     HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
