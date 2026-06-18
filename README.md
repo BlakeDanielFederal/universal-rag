@@ -3,8 +3,8 @@
 A **local-first indexing, storage, and retrieval framework** that builds a
 per-project vector store from the business systems where project knowledge
 actually lives — Confluence (roadmaps, specs), Jira (what's on deck), GitHub
-(what's been implemented) — and serves **project-scoped, citation-ready hybrid
-retrieval** over REST and MCP.
+(what's been implemented), and SharePoint/OneDrive (the wider business context) —
+and serves **project-scoped, citation-ready hybrid retrieval** over REST and MCP.
 
 Different providers contribute different slices of context; Universal RAG unifies
 them under a single project workspace and hands a consuming client ranked,
@@ -66,6 +66,7 @@ uv run urag serve-mcp    # FastMCP (stdio):  list_projects / sync_project / quer
 
 ## Status
 
-Implemented end-to-end: Confluence Data Center ingestion, hybrid retrieval, and
-the REST/MCP query+sync surface. Jira and GitHub connectors are stubbed. See
-`docs/architecture.md` for the component map and build order.
+Implemented end-to-end: connectors for **Confluence Data Center**, **Jira Data
+Center**, **GitHub**, and **SharePoint/OneDrive (Microsoft Graph)**; incremental
+ingestion into pgvector; hybrid retrieval; and the REST/MCP query+sync surface.
+See `docs/architecture.md` for the component map and build order.

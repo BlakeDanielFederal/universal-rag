@@ -14,7 +14,7 @@ flowchart TD
         CONF[Confluence<br/>roadmaps, specs]
         JIRA[Jira<br/>sprints, on-deck]
         GH[GitHub<br/>PRs, releases]
-        FUTURE[SharePoint / OneDrive<br/>future]:::future
+        SP[SharePoint / OneDrive<br/>docs, decks]
     end
 
     subgraph Connectors["Connectors (plugin registry)"]
@@ -49,7 +49,7 @@ flowchart TD
 
     CLIENT[Consuming client<br/>owns generation]:::future
 
-    CONF & JIRA & GH & FUTURE --> BASE
+    CONF & JIRA & GH & SP --> BASE
     BASE --> CHUNK --> EMB --> CH
     BASE --> DOC
     PROJ --> SRC --> DOC --> CH
@@ -101,13 +101,17 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
       startAt/maxResults pagination, summary+description+comments, PAT bearer auth.
 - [x] **GitHub connector** `fetch()` — PRs/issues (issues endpoint `?since`),
       releases, README; page-increment pagination, PAT bearer auth.
+- [x] **SharePoint / OneDrive connector** `fetch()` — MS Graph app-only OAuth2,
+      site/drive resolution, recursive driveItem walk, file text extraction
+      (docx/pptx/pdf/text/html), modified-time incremental filter.
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
 - [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
       rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
 - [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
       and `list_projects` / `sync_project` / `query_project` tools.
 - [x] **Generation removed** — out of scope; consuming clients own it.
-- [ ] SharePoint / OneDrive (MS Graph) connector. ← **next slice**
+- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); deletion handling; Graph
+      `/delta`. ← **next slices**
 - [ ] Alembic migrations; scheduler for incremental polling.
 
 ### Confluence ingestion detail (implemented)
@@ -153,6 +157,27 @@ flowchart LR
     CONN -->|releases / readme| OBJ[releases + README<br/>filtered / base64]
     ISS & OBJ --> API[GitHub REST<br/>Bearer PAT]
     API --> PARSE[issue_or_pr / release / readme<br/>_to_document]
+    PARSE --> HASH{content_hash<br/>changed?}
+    HASH -->|no| SKIP[skip]
+    HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
+    UP --> ADV[advance cursor = max updated_at]
+    ADV --> ST
+```
+
+### SharePoint / OneDrive ingestion detail (implemented)
+
+```mermaid
+flowchart LR
+    CFG[config.yaml<br/>sites + onedrive_users] --> CONN
+    ENV[.env<br/>MSGRAPH_TENANT/CLIENT/SECRET] --> TOK[acquire_app_token<br/>OAuth2 client credentials]
+    ST[(sync_state.cursor)] --> CONN[SharePointConnector]
+    TOK -->|Bearer token| CONN
+    CONN --> RES[resolve sites→drives<br/>+ OneDrive user drives]
+    RES --> WALK[iter_drive_items<br/>recursive, files only]
+    WALK --> FILT{ext + size +<br/>lastModified ≥ cursor?}
+    FILT -->|no| SKIP1[skip]
+    FILT -->|yes| DL[download content] --> EX[extract_text<br/>docx/pptx/pdf/text/html]
+    EX --> PARSE[item_to_document]
     PARSE --> HASH{content_hash<br/>changed?}
     HASH -->|no| SKIP[skip]
     HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
