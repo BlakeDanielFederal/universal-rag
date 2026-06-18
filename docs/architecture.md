@@ -79,6 +79,12 @@ Each source has a `sync_state` cursor (typically a last-modified timestamp).
 Ingestion fetches only items changed since the cursor, skips documents whose
 `content_hash` is unchanged, re-embeds the rest, and advances the cursor.
 
+**Deletion reconciliation (prune).** After a clean sync, if the source's `prune`
+option is on (default), the connector's `list_external_ids()` returns the full live
+id set and the pipeline hard-deletes any `Document` whose `external_id` is no longer
+present (chunks cascade). Guarded: never prune on a sync error, an enumeration
+error, or an empty live set.
+
 ## Retrieval surface (where this framework ends)
 
 `HybridRetriever.search(query, project_id)` returns top-K grounded chunks, each
@@ -111,8 +117,10 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
 - [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
       and `list_projects` / `sync_project` / `query_project` tools.
 - [x] **Generation removed** — out of scope; consuming clients own it.
-- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); deletion handling; Graph
-      `/delta`. ← **next slices**
+- [x] **Deletion handling** — `Connector.list_external_ids()` + pipeline prune
+      (hard delete, chunks cascade); per-source `prune` opt (default ON), safety
+      guards (skip on sync/enum error or empty live set).
+- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); Graph `/delta`. ← **next slices**
 - [x] **Alembic migrations** (`0001_initial`; `db-init` = `alembic upgrade head`).
 - [x] **In-process scheduler** (`scheduler.py` / `urag serve-scheduler`) — runs each
       incremental source's `run_sync` on its config cron via APScheduler.

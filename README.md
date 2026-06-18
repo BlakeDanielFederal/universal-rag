@@ -74,5 +74,6 @@ uv run urag serve-mcp    # FastMCP (stdio):  list_projects / sync_project / quer
 
 Implemented end-to-end: connectors for **Confluence Data Center**, **Jira Data
 Center**, **GitHub**, and **SharePoint/OneDrive (Microsoft Graph)**; incremental
-ingestion into pgvector; hybrid retrieval; and the REST/MCP query+sync surface.
-See `docs/architecture.md` for the component map and build order.
+ingestion into pgvector with **deletion reconciliation** (prune); Alembic
+migrations; a cron scheduler; hybrid retrieval; and the REST/MCP query+sync
+surface. See `docs/architecture.md` for the component map and build order.
