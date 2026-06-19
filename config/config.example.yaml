@@ -57,3 +57,12 @@ projects:
         # Optional tuning (sensible defaults shown):
         # include_extensions: [".docx", ".pdf", ".pptx", ".md", ".txt", ".html", ".csv"]
         # max_file_mb: 10           # skip files larger than this
+
+      - id: apollo-local
+        provider: local
+        paths:                      # root directories to index (recursively)
+          - "~/Documents/Apollo"
+        # exclude_globs: ["*~", "*/.git/*", "*/node_modules/*"]
+        # include_extensions: [...] # defaults to docx/pptx/pdf/md/txt/html/csv/...
+        # max_file_mb: 10
+        # follow_symlinks: false

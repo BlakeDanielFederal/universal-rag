@@ -11,6 +11,7 @@ _REGISTRY: dict[str, str] = {
     "jira": "universal_rag.connectors.jira:JiraConnector",
     "github": "universal_rag.connectors.github:GitHubConnector",
     "sharepoint": "universal_rag.connectors.sharepoint:SharePointConnector",
+    "local": "universal_rag.connectors.local:LocalDirectoryConnector",
 }
 
 
