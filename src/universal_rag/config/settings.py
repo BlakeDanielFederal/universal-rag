@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     embed_doc_prefix: str = "search_document: "
     embed_query_prefix: str = "search_query: "
 
+    # --- Evaluation harness (offline; not on the retrieval core path) ---
+    # Ollama chat model used to synthesize the golden set (`urag eval gen`).
+    eval_gen_model: str = ""
+    # Optional judge model for context-support metric; blank -> retrieval metrics only.
+    # Local-first default; a hosted judge can be plugged via the Judge protocol.
+    eval_judge_model: str = ""
+
     # --- Connector creds (optional; only the ones in use need to be set) ---
     # Confluence Data Center: Personal Access Token via `Authorization: Bearer`.
     confluence_base_url: str = ""  # e.g. https://confluence.your-org.com
