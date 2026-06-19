@@ -66,3 +66,13 @@ projects:
         # include_extensions: [...] # defaults to docx/pptx/pdf/md/txt/html/csv/...
         # max_file_mb: 10
         # follow_symlinks: false
+
+      - id: apollo-website
+        provider: website
+        start_urls:
+          - "https://www.apollo-project.example/docs"
+        max_depth: 2                # link-follow depth from each start url
+        max_pages: 200              # crawl budget (per sync)
+        # allowed_domains: ["apollo-project.example"]   # default: hosts of start_urls
+        # respect_robots: true
+        # delay_seconds: 0.5        # politeness delay between requests
