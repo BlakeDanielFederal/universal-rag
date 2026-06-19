@@ -14,7 +14,9 @@ flowchart TD
         CONF[Confluence<br/>roadmaps, specs]
         JIRA[Jira<br/>sprints, on-deck]
         GH[GitHub<br/>PRs, releases]
-        SP[SharePoint / OneDrive<br/>docs, decks]
+        SP[SharePoint / OneDrive<br/>docs, decks · /delta]
+        WEB[Websites<br/>recursive crawl]
+        LOC[Local dirs<br/>files]
     end
 
     subgraph Connectors["Connectors (plugin registry)"]
@@ -50,7 +52,7 @@ flowchart TD
 
     CLIENT[Consuming client<br/>owns generation]:::future
 
-    CONF & JIRA & GH & SP --> BASE
+    CONF & JIRA & GH & SP & WEB & LOC --> BASE
     BASE --> CHUNK --> EMB --> CH
     BASE --> DOC
     PROJ --> SRC --> DOC --> CH
@@ -109,18 +111,23 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
 - [x] **GitHub connector** `fetch()` — PRs/issues (issues endpoint `?since`),
       releases, README; page-increment pagination, PAT bearer auth.
 - [x] **SharePoint / OneDrive connector** `fetch()` — MS Graph app-only OAuth2,
-      site/drive resolution, recursive driveItem walk, file text extraction
-      (docx/pptx/pdf/text/html), modified-time incremental filter.
+      site/drive resolution, file text extraction (docx/pptx/pdf/text/html), now on
+      **Graph `/delta`** (per-drive deltaLink cursor; deletions via tombstones).
+- [x] **Website connector** `fetch()` — recursive same-domain crawl (depth/budget,
+      robots, politeness), trafilatura main-content extraction.
+- [x] **Local directory connector** `fetch()` — recursive walk + shared extractor,
+      glob filters, mtime-incremental.
 - [x] Chunking + ingestion pipeline + embedder wiring (`run_sync`, hash-skip, cursor).
 - [x] **Hybrid retrieval** — pgvector cosine + Postgres FTS, RRF fusion, optional
       rerank, project/source/metadata scoping (`HybridRetriever`, `urag query`).
 - [x] **Retrieval surface over REST + MCP** — `projects` / `sync` / `query` routes
       and `list_projects` / `sync_project` / `query_project` tools.
 - [x] **Generation removed** — out of scope; consuming clients own it.
-- [x] **Deletion handling** — `Connector.list_external_ids()` + pipeline prune
-      (hard delete, chunks cascade); per-source `prune` opt (default ON), safety
-      guards (skip on sync/enum error or empty live set).
-- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); Graph `/delta`. ← **next slices**
+- [x] **Deletion handling** — reconcile-prune (`Connector.list_external_ids()`) for
+      most connectors; **change-feed tombstones** (`SourceDocument.deleted`) for
+      SharePoint /delta. Per-source `prune` opt (default ON), safety guards.
+- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); prune blast-radius cap;
+      JS-rendered web pages (headless). ← **next slices**
 - [x] **Alembic migrations** (`0001_initial`; `db-init` = `alembic upgrade head`).
 - [x] **In-process scheduler** (`scheduler.py` / `urag serve-scheduler`) — runs each
       incremental source's `run_sync` on its config cron via APScheduler.
@@ -181,18 +188,19 @@ flowchart LR
 flowchart LR
     CFG[config.yaml<br/>sites + onedrive_users] --> CONN
     ENV[.env<br/>MSGRAPH_TENANT/CLIENT/SECRET] --> TOK[acquire_app_token<br/>OAuth2 client credentials]
-    ST[(sync_state.cursor)] --> CONN[SharePointConnector]
+    ST[(sync_state.cursor<br/>JSON: drive→deltaLink)] --> CONN[SharePointConnector]
     TOK -->|Bearer token| CONN
     CONN --> RES[resolve sites→drives<br/>+ OneDrive user drives]
-    RES --> WALK[iter_drive_items<br/>recursive, files only]
-    WALK --> FILT{ext + size +<br/>lastModified ≥ cursor?}
-    FILT -->|no| SKIP1[skip]
-    FILT -->|yes| DL[download content] --> EX[extract_text<br/>docx/pptx/pdf/text/html]
+    RES --> DELTA["drives/id/root/delta<br/>per-drive, since deltaLink"]
+    DELTA --> KIND{item kind}
+    KIND -->|deleted facet| DEL[yield deleted marker] --> RM[(delete Document + Chunks)]
+    KIND -->|file, ext+size ok| DL[download content] --> EX[extract_text]
     EX --> PARSE[item_to_document]
-    PARSE --> HASH{content_hash<br/>changed?}
+    PARSE --> HASH{content_hash changed?}
     HASH -->|no| SKIP[skip]
     HASH -->|yes| CK[chunk_text] --> EMB[embed_documents<br/>search_document:] --> UP[(upsert Document + Chunks)]
-    UP --> ADV[advance cursor = max updated_at]
+    UP --> ADV[next_cursor = new deltaLinks]
+    RM --> ADV
     ADV --> ST
 ```
 
