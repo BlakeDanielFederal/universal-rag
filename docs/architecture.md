@@ -126,9 +126,14 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
 - [x] **Deletion handling** — reconcile-prune (`Connector.list_external_ids()`) for
       most connectors; **change-feed tombstones** (`SourceDocument.deleted`) for
       SharePoint /delta. Per-source `prune` opt (default ON), safety guards.
-- [ ] SharePoint **Pages/News** (`/sites/{id}/pages`); prune blast-radius cap;
-      JS-rendered web pages (headless). ← **next slices**
-- [x] **Alembic migrations** (`0001_initial`; `db-init` = `alembic upgrade head`).
+- [x] **Eval harness + versioning foundation (roadmap M0)** — `src/universal_rag/eval/`
+      (recall@k/nDCG/MRR, doc-level golden, optional judge, `urag eval gen|run`);
+      `documents.body` + `embedding_model`/`chunk_scheme` signature (migration `0002`);
+      signature-aware re-embed + `urag reindex`; CI (`.github/workflows/`).
+- [ ] **Roadmap M1+** (eval-gated): cross-encoder rerank, weighted RRF, chunk tuning;
+      M2 Contextual-vs-Late bake-off; M3 provenance/embedding upgrade; M4 multi-hop.
+- [ ] SharePoint **Pages/News**; prune blast-radius cap; JS-rendered web pages.
+- [x] **Alembic migrations** (`0001`+`0002`; `db-init` = `alembic upgrade head`).
 - [x] **In-process scheduler** (`scheduler.py` / `urag serve-scheduler`) — runs each
       incremental source's `run_sync` on its config cron via APScheduler.
 
