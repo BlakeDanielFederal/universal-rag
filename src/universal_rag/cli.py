@@ -95,6 +95,22 @@ def sync(
 
 
 @app.command()
+def reindex(
+    project: str, source: str | None = typer.Option(None, help="Limit to one source id")
+) -> None:
+    """Rebuild chunks with the current embedding model + chunk scheme from stored
+    document bodies (no provider re-fetch). Use after changing the model/chunking."""
+    from universal_rag.ingestion import reindex as run_reindex
+
+    for r in run_reindex(project, source, config=_load_app_config()):
+        note = f", {r.needs_refetch} need re-fetch (run sync)" if r.needs_refetch else ""
+        rprint(
+            f"[green]✓[/green] {r.source_id}: reindexed {r.reindexed} doc(s), "
+            f"{r.chunks} chunk(s){note}"
+        )
+
+
+@app.command()
 def query(
     project: str,
     text: str,

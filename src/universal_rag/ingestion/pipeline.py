@@ -76,25 +76,67 @@ class IngestionPipeline:
         self.embedder = embedder or OllamaEmbedder()
         self.chunk_cfg = chunk or ChunkConfig()
 
+    def scheme(self) -> str:
+        """Chunking signature; changes here trigger a controlled re-index."""
+        return f"sliding-{self.chunk_cfg.max_tokens}-{self.chunk_cfg.overlap_tokens}"
+
+    def _write_chunks(self, session: Session, row: Document, content: str) -> int:
+        """Chunk + embed `content` into Chunk rows for an existing Document. Stamps
+        the index signature. Reused by ingestion and re-index."""
+        text_chunks = chunk_text(
+            content,
+            max_tokens=self.chunk_cfg.max_tokens,
+            overlap_tokens=self.chunk_cfg.overlap_tokens,
+        )
+        if not text_chunks:
+            return 0
+        meta = {"title": row.title, "url": row.url, **(row.doc_metadata or {})}
+        vectors = self.embedder.embed_documents([c.content for c in text_chunks])
+        for tc, vec in zip(text_chunks, vectors, strict=True):
+            session.add(
+                Chunk(
+                    document_id=row.id,
+                    project_id=row.project_id,
+                    source_id=row.source_id,
+                    ordinal=tc.ordinal,
+                    content=tc.content,
+                    embedding=vec,
+                    embedding_model=self.embedder.model,
+                    chunk_scheme=self.scheme(),
+                    chunk_metadata=meta,
+                )
+            )
+        return len(text_chunks)
+
     def _upsert_document(
-        self, session: Session, project_id: str, source_id: str, doc: SourceDocument
+        self,
+        session: Session,
+        project_id: str,
+        source_id: str,
+        doc: SourceDocument,
+        *,
+        store_body: bool = True,
     ) -> tuple[str, int]:
         """Returns (outcome, n_chunks); outcome is 'skipped' or 'written'."""
         content_hash = _hash(doc.title, doc.content)
+        model, scheme = self.embedder.model, self.scheme()
         existing = session.scalar(
             select(Document).where(
                 Document.source_id == source_id, Document.external_id == doc.external_id
             )
         )
-        if existing is not None and existing.content_hash == content_hash:
-            return ("skipped", 0)  # unchanged — skip re-embedding
+        # Skip only when content AND the index signature are unchanged — a model or
+        # chunk-scheme change makes existing chunks stale and forces a rebuild.
+        if (
+            existing is not None
+            and existing.content_hash == content_hash
+            and existing.embedding_model == model
+            and existing.chunk_scheme == scheme
+        ):
+            return ("skipped", 0)
 
         if existing is None:
-            row = Document(
-                project_id=project_id,
-                source_id=source_id,
-                external_id=doc.external_id,
-            )
+            row = Document(project_id=project_id, source_id=source_id, external_id=doc.external_id)
             session.add(row)
         else:
             row = existing
@@ -105,29 +147,23 @@ class IngestionPipeline:
         row.content_hash = content_hash
         row.updated_at = doc.updated_at
         row.doc_metadata = doc.metadata
+        row.body = doc.content if store_body else ""
+        row.embedding_model = model
+        row.chunk_scheme = scheme
         session.flush()  # ensure row.id
 
-        text_chunks = chunk_text(
-            doc.content,
-            max_tokens=self.chunk_cfg.max_tokens,
-            overlap_tokens=self.chunk_cfg.overlap_tokens,
-        )
-        if not text_chunks:
-            return ("written", 0)  # e.g. an empty page; the Document row still updates
-        vectors = self.embedder.embed_documents([c.content for c in text_chunks])
-        for tc, vec in zip(text_chunks, vectors, strict=True):
-            session.add(
-                Chunk(
-                    document_id=row.id,
-                    project_id=project_id,
-                    source_id=source_id,
-                    ordinal=tc.ordinal,
-                    content=tc.content,
-                    embedding=vec,
-                    chunk_metadata={"title": doc.title, "url": doc.url, **doc.metadata},
-                )
-            )
-        return ("written", len(text_chunks))
+        n = self._write_chunks(session, row, doc.content)
+        return ("written", n)
+
+    def reindex_document(self, session: Session, row: Document) -> int:
+        """Rebuild a document's chunks from its stored body with the current
+        signature (no provider re-fetch). Returns n_chunks; -1 if no body."""
+        if not row.body:
+            return -1
+        session.execute(delete(Chunk).where(Chunk.document_id == row.id))
+        row.embedding_model = self.embedder.model
+        row.chunk_scheme = self.scheme()
+        return self._write_chunks(session, row, row.body)
 
     def _delete_document(self, session: Session, source_id: str, external_id: str) -> int:
         """Hard-delete one document (and its chunks) by external_id. Returns 0/1."""
@@ -196,13 +232,16 @@ class IngestionPipeline:
 
         cursor = SyncCursor(value=state.cursor) if state.cursor else None
         max_updated: datetime | None = None
+        store_body = bool(source.opt("store_body", True))
         connector = get_connector(source)
         try:
             for doc in connector.fetch(cursor):
                 if doc.deleted:  # change-feed deletion marker (e.g. SharePoint /delta)
                     result.deleted += self._delete_document(session, source.id, doc.external_id)
                     continue
-                outcome, written = self._upsert_document(session, project.id, source.id, doc)
+                outcome, written = self._upsert_document(
+                    session, project.id, source.id, doc, store_body=store_body
+                )
                 if outcome == "skipped":
                     result.skipped += 1
                 else:
@@ -265,4 +304,50 @@ def run_sync(
         with get_session() as session:
             ensure_project(session, project)
             results.append(pipeline.run(session, project, source, prune=effective_prune))
+    return results
+
+
+@dataclass(slots=True)
+class ReindexResult:
+    source_id: str
+    reindexed: int = 0  # documents re-chunked/re-embedded from stored body
+    needs_refetch: int = 0  # documents with no stored body (marked stale for next sync)
+    chunks: int = 0
+
+
+def reindex(
+    project_id: str, source_id: str | None = None, *, config: AppConfig | None = None
+) -> list[ReindexResult]:
+    """Rebuild chunks for a project with the CURRENT embedding model + chunk scheme,
+    from each document's stored body (no provider re-fetch). Documents without a
+    stored body are marked stale (content_hash cleared) so the next `sync` re-pulls
+    and re-embeds them."""
+    cfg = config or load_app_config()
+    project = cfg.project(project_id)
+    if project is None:
+        raise ValueError(f"Unknown project '{project_id}'")
+    source_ids = [s.id for s in project.sources]
+    if source_id is not None:
+        if source_id not in source_ids:
+            raise ValueError(f"Unknown source '{source_id}' in project '{project_id}'")
+        source_ids = [source_id]
+
+    pipeline = IngestionPipeline(chunk=cfg.defaults.chunk)
+    results: list[ReindexResult] = []
+    for sid in source_ids:
+        res = ReindexResult(source_id=sid)
+        with get_session() as session:
+            docs = session.scalars(
+                select(Document).where(Document.source_id == sid)
+            ).all()
+            for doc in docs:
+                n = pipeline.reindex_document(session, doc)
+                if n < 0:  # no stored body → force re-fetch on next sync
+                    doc.content_hash = ""
+                    doc.embedding_model = ""
+                    res.needs_refetch += 1
+                else:
+                    res.reindexed += 1
+                    res.chunks += n
+        results.append(res)
     return results

@@ -80,6 +80,12 @@ class Document(Base):
     )  # skip re-embedding unchanged docs
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     doc_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Raw extracted text (enables offline re-chunk / contextualization / late-chunking
+    # / embedding swaps without re-fetching the source). "" when store_body is off.
+    body: Mapped[str] = mapped_column(Text, default="")
+    # Index signature its chunks were built with — drives controlled re-index.
+    embedding_model: Mapped[str] = mapped_column(String, default="")
+    chunk_scheme: Mapped[str] = mapped_column(String, default="")
 
     source: Mapped[Source] = relationship(back_populates="documents")
     chunks: Mapped[list[Chunk]] = relationship(
@@ -101,6 +107,9 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBED_DIM))
     chunk_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Provenance: which model/scheme produced this chunk (eval + re-index tracking).
+    embedding_model: Mapped[str] = mapped_column(String, default="")
+    chunk_scheme: Mapped[str] = mapped_column(String, default="")
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 

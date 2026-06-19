@@ -9,6 +9,12 @@ Orchestrates incremental sync per source:
   6. advance + persist the cursor
 """
 
-from universal_rag.ingestion.pipeline import IngestionPipeline, SourceSyncResult, run_sync
+from universal_rag.ingestion.pipeline import (
+    IngestionPipeline,
+    ReindexResult,
+    SourceSyncResult,
+    reindex,
+    run_sync,
+)
 
-__all__ = ["IngestionPipeline", "SourceSyncResult", "run_sync"]
+__all__ = ["IngestionPipeline", "ReindexResult", "SourceSyncResult", "reindex", "run_sync"]
