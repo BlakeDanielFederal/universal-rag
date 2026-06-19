@@ -139,9 +139,9 @@ def test_extract_text_unsupported_and_corrupt_return_empty() -> None:
 
 
 def test_extract_text_pdf_routes_to_pdf_extractor(monkeypatch: pytest.MonkeyPatch) -> None:
-    import universal_rag.connectors.sharepoint as sp
+    import universal_rag.connectors.extract as extract
 
-    monkeypatch.setitem(sp._EXTRACTORS, ".pdf", lambda data: "PDF TEXT")
+    monkeypatch.setitem(extract._EXTRACTORS, ".pdf", lambda data: "PDF TEXT")
     assert extract_text("report.pdf", b"%PDF-1.7 ...") == "PDF TEXT"
 
 

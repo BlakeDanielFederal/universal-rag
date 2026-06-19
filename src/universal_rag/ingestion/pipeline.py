@@ -129,6 +129,19 @@ class IngestionPipeline:
             )
         return ("written", len(text_chunks))
 
+    def _delete_document(self, session: Session, source_id: str, external_id: str) -> int:
+        """Hard-delete one document (and its chunks) by external_id. Returns 0/1."""
+        doc_id = session.scalar(
+            select(Document.id).where(
+                Document.source_id == source_id, Document.external_id == external_id
+            )
+        )
+        if doc_id is None:
+            return 0
+        session.execute(delete(Chunk).where(Chunk.document_id == doc_id))
+        session.execute(delete(Document).where(Document.id == doc_id))
+        return 1
+
     def _prune(
         self,
         session: Session,
@@ -186,6 +199,9 @@ class IngestionPipeline:
         connector = get_connector(source)
         try:
             for doc in connector.fetch(cursor):
+                if doc.deleted:  # change-feed deletion marker (e.g. SharePoint /delta)
+                    result.deleted += self._delete_document(session, source.id, doc.external_id)
+                    continue
                 outcome, written = self._upsert_document(session, project.id, source.id, doc)
                 if outcome == "skipped":
                     result.skipped += 1
@@ -205,7 +221,13 @@ class IngestionPipeline:
         # Reconcile deletions only after a clean fetch (safety rule #1).
         if prune:
             self._prune(session, connector, source, result)
-        if max_updated is not None:
+
+        # Cursor: a connector-owned opaque value (e.g. /delta link) wins; otherwise
+        # fall back to the newest updated_at we saw (timestamp-cursor connectors).
+        next_cursor = connector.next_cursor()
+        if next_cursor is not None:
+            state.cursor = next_cursor
+        elif max_updated is not None:
             state.cursor = max_updated.isoformat()
         state.last_status = "ok"
         state.last_run_at = datetime.now(UTC)

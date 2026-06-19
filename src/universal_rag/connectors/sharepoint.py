@@ -27,7 +27,6 @@ Out of scope (follow-ups): SharePoint Pages/News (/sites/{id}/pages), deletions
 
 from __future__ import annotations
 
-import io
 import os
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -38,72 +37,12 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from universal_rag.config import get_settings
 from universal_rag.connectors.base import Connector, SourceDocument, SyncCursor
-from universal_rag.connectors.confluence import html_to_text
+from universal_rag.connectors.extract import DEFAULT_EXTENSIONS, extract_text
 
 # lastModifiedDateTime is UTC ISO8601; re-scan a small window each run so edits
 # near the boundary are never missed (re-fetched files are hash-skipped).
 _CURSOR_SAFETY = timedelta(minutes=5)
 _SCOPE = "https://graph.microsoft.com/.default"
-
-# Formats we extract. Anything else is skipped (logged via the run's skip count).
-_TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".json", ".log", ".yaml", ".yml"}
-_HTML_EXT = {".html", ".htm"}
-
-
-# --------------------------------------------------------------------------- #
-# Text extraction (pure; each format isolated so a bad file can't sink a sync)
-# --------------------------------------------------------------------------- #
-def _extract_docx(data: bytes) -> str:
-    from docx import Document as Docx
-
-    doc = Docx(io.BytesIO(data))
-    parts = [p.text for p in doc.paragraphs if p.text]
-    for table in doc.tables:
-        for row in table.rows:
-            cells = [c.text.strip() for c in row.cells if c.text.strip()]
-            if cells:
-                parts.append(" | ".join(cells))
-    return "\n".join(parts)
-
-
-def _extract_pptx(data: bytes) -> str:
-    from pptx import Presentation
-
-    prs = Presentation(io.BytesIO(data))
-    parts: list[str] = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame and shape.text_frame.text.strip():
-                parts.append(shape.text_frame.text.strip())
-    return "\n".join(parts)
-
-
-def _extract_pdf(data: bytes) -> str:
-    from pypdf import PdfReader
-
-    reader = PdfReader(io.BytesIO(data))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
-
-
-_EXTRACTORS = {".docx": _extract_docx, ".pptx": _extract_pptx, ".pdf": _extract_pdf}
-
-# Default allowed extensions = everything we can extract.
-_DEFAULT_EXTENSIONS = frozenset(_EXTRACTORS) | _HTML_EXT | _TEXT_EXT
-
-
-def extract_text(filename: str, data: bytes, mime: str = "") -> str:
-    """Extract plain text from a file's bytes, routing by extension. '' if unsupported."""
-    ext = os.path.splitext(filename)[1].lower()
-    try:
-        if ext in _EXTRACTORS:
-            return _EXTRACTORS[ext](data).strip()
-        if ext in _HTML_EXT:
-            return html_to_text(data.decode("utf-8", errors="replace"))
-        if ext in _TEXT_EXT:
-            return data.decode("utf-8", errors="replace").strip()
-    except Exception:
-        return ""  # corrupt/unsupported payload — skip rather than fail the run
-    return ""
 
 
 # --------------------------------------------------------------------------- #
@@ -317,7 +256,7 @@ class SharePointConnector(Connector):
         client = self._client()
         since = self._since(cursor)
         allowed = {
-            e.lower() for e in (self.source.opt("include_extensions") or _DEFAULT_EXTENSIONS)
+            e.lower() for e in (self.source.opt("include_extensions") or DEFAULT_EXTENSIONS)
         }
         max_bytes = int(self.source.opt("max_file_mb", 10)) * 1024 * 1024
         page_size = int(self.source.opt("page_size", 200))

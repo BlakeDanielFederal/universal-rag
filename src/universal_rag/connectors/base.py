@@ -29,6 +29,9 @@ class SourceDocument:
     # Free-form metadata stored alongside the chunk (author, status, labels,
     # repo, doc_type, etc.) and usable as retrieval filters.
     metadata: dict[str, object] = field(default_factory=dict)
+    # A deletion marker (change-feed connectors like SharePoint /delta): when True,
+    # only source_id + external_id matter — the pipeline deletes that document.
+    deleted: bool = False
 
 
 @dataclass(slots=True)
@@ -48,8 +51,20 @@ class Connector(abc.ABC):
 
     @abc.abstractmethod
     def fetch(self, cursor: SyncCursor | None = None) -> Iterator[SourceDocument]:
-        """Yield documents; if `cursor` is set, only those changed since it."""
+        """Yield documents; if `cursor` is set, only those changed since it.
+
+        May also yield deletion markers (`SourceDocument(deleted=True, ...)`) for
+        change-feed providers.
+        """
         raise NotImplementedError
+
+    def next_cursor(self) -> str | None:
+        """Cursor value to persist after a successful fetch, for connectors that own
+        an opaque cursor (e.g. a Graph /delta deltaLink). Read AFTER the fetch
+        iterator is fully consumed. None → the pipeline falls back to the max
+        `updated_at` it saw (the default timestamp-cursor behavior).
+        """
+        return None
 
     def list_external_ids(self) -> set[str] | None:
         """All current external_ids for this source's full scope (ids only, no
