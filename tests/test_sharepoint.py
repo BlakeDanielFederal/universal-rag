@@ -63,29 +63,31 @@ def test_client_bearer_auth_and_nextlink_pagination() -> None:
     assert seen_auth == ["Bearer TOK", "Bearer TOK"]
 
 
-def test_iter_drive_items_recurses_folders_yields_files() -> None:
-    # root has one file + one folder; the folder has one file.
-    responses = {
-        "/v1.0/drives/D/root/children": {
-            "value": [
-                {"id": "f1", "name": "a.md", "file": {"mimeType": "text/markdown"}},
-                {"id": "dir1", "name": "sub", "folder": {"childCount": 1}},
-            ]
-        },
-        "/v1.0/drives/D/items/dir1/children": {
-            "value": [{"id": "f2", "name": "b.docx", "file": {"mimeType": "application/x"}}]
-        },
-    }
-
+def test_delta_paginates_and_returns_delta_link() -> None:
+    # page 1 -> @odata.nextLink; page 2 -> @odata.deltaLink (the token for next time)
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=responses[request.url.path])
+        if request.url.params.get("page") == "2":
+            return httpx.Response(
+                200,
+                json={
+                    "value": [{"id": "f2", "name": "b.docx", "file": {}}],
+                    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/D/root/delta?token=T2",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "value": [{"id": "f1", "name": "a.md", "file": {}}],
+                "@odata.nextLink": "https://graph.microsoft.com/v1.0/drives/D/root/delta?page=2",
+            },
+        )
 
     client = MicrosoftGraphClient(
         "https://graph.microsoft.com/v1.0", "TOK", transport=httpx.MockTransport(handler)
     )
-    files = list(client.iter_drive_items("D"))
-    assert {f["id"] for f in files} == {"f1", "f2"}  # folder itself not yielded
-    assert all("file" in f for f in files)
+    items, delta_link = client.delta("D")
+    assert {i["id"] for i in items} == {"f1", "f2"}
+    assert delta_link.endswith("token=T2")
 
 
 def test_resolve_site_builds_host_path_address() -> None:

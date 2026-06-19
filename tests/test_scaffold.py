@@ -24,4 +24,4 @@ def test_example_config_validates() -> None:
     apollo = cfg.project("apollo")
     assert apollo is not None
     providers = {s.provider for s in apollo.sources}
-    assert providers == {"confluence", "jira", "github", "sharepoint"}
+    assert providers == {"confluence", "jira", "github", "sharepoint", "local", "website"}

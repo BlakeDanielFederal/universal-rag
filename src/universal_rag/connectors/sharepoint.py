@@ -27,21 +27,20 @@ Out of scope (follow-ups): SharePoint Pages/News (/sites/{id}/pages), deletions
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from universal_rag.config import get_settings
+from universal_rag.config.schema import SourceConfig
 from universal_rag.connectors.base import Connector, SourceDocument, SyncCursor
 from universal_rag.connectors.extract import DEFAULT_EXTENSIONS, extract_text
 
-# lastModifiedDateTime is UTC ISO8601; re-scan a small window each run so edits
-# near the boundary are never missed (re-fetched files are hash-skipped).
-_CURSOR_SAFETY = timedelta(minutes=5)
 _SCOPE = "https://graph.microsoft.com/.default"
 
 
@@ -193,16 +192,27 @@ class MicrosoftGraphClient:
     def get_user_drive(self, upn: str) -> dict[str, Any]:
         return self._get(f"/users/{upn}/drive").json()
 
-    def iter_drive_items(self, drive_id: str, page_size: int = 200) -> Iterator[dict[str, Any]]:
-        """Walk a drive depth-first, yielding file items (skips folders themselves)."""
-        stack = [f"/drives/{drive_id}/root/children"]
-        while stack:
-            path = stack.pop()
-            for item in self._iter(path, {"$top": page_size}):
-                if "folder" in item:
-                    stack.append(f"/drives/{drive_id}/items/{item['id']}/children")
-                elif "file" in item:
-                    yield item
+    def delta(
+        self, drive_id: str, delta_link: str | None = None, page_size: int = 200
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Return (changed items, next deltaLink) for a drive.
+
+        With no `delta_link` this is the initial full enumeration; otherwise it
+        returns only items added/changed/deleted since that link. Follows
+        @odata.nextLink across pages and captures the final @odata.deltaLink.
+        """
+        url = delta_link or f"/drives/{drive_id}/root/delta"
+        params: dict[str, Any] | None = None if delta_link else {"$top": page_size}
+        items: list[dict[str, Any]] = []
+        while True:
+            data = self._get(url, params).json()
+            params = None  # nextLink/deltaLink carry their own query
+            items.extend(data.get("value", []))
+            next_link = data.get("@odata.nextLink")
+            if next_link:
+                url = next_link
+                continue
+            return items, data.get("@odata.deltaLink", "")
 
     def download_item(self, drive_id: str, item_id: str) -> bytes:
         return self._get(f"/drives/{drive_id}/items/{item_id}/content").content
@@ -217,6 +227,10 @@ class MicrosoftGraphClient:
 class SharePointConnector(Connector):
     provider = "sharepoint"
 
+    def __init__(self, source: SourceConfig) -> None:
+        super().__init__(source)
+        self._next_cursor_value: str | None = None
+
     def _client(self) -> MicrosoftGraphClient:
         s = get_settings()
         if not (s.msgraph_tenant_id and s.msgraph_client_id and s.msgraph_client_secret):
@@ -230,11 +244,16 @@ class SharePointConnector(Connector):
         return MicrosoftGraphClient(s.msgraph_base_url, token)
 
     @staticmethod
-    def _since(cursor: SyncCursor | None) -> datetime | None:
+    def _load_tokens(cursor: SyncCursor | None) -> dict[str, str]:
+        """Per-drive deltaLinks from the cursor. Tolerates a pre-delta timestamp
+        cursor (or junk) by returning {} → a full re-enumeration via /delta."""
         if not cursor or not cursor.value:
-            return None
-        dt = _parse_iso(cursor.value)
-        return dt - _CURSOR_SAFETY if dt else None
+            return {}
+        try:
+            value = json.loads(cursor.value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return value if isinstance(value, dict) else {}
 
     def _resolve_drives(self, client: MicrosoftGraphClient) -> list[tuple[str, str]]:
         """Return (drive_id, kind) for every configured site library + OneDrive."""
@@ -254,16 +273,33 @@ class SharePointConnector(Connector):
 
     def fetch(self, cursor: SyncCursor | None = None) -> Iterator[SourceDocument]:
         client = self._client()
-        since = self._since(cursor)
         allowed = {
             e.lower() for e in (self.source.opt("include_extensions") or DEFAULT_EXTENSIONS)
         }
         max_bytes = int(self.source.opt("max_file_mb", 10)) * 1024 * 1024
         page_size = int(self.source.opt("page_size", 200))
+        tokens = self._load_tokens(cursor)
+        new_tokens: dict[str, str] = {}
+        self._next_cursor_value = None
         try:
             for drive_id, kind in self._resolve_drives(client):
-                for item in client.iter_drive_items(drive_id, page_size):
-                    if not item_passes(item, since, allowed, max_bytes):
+                items, delta_link = client.delta(drive_id, tokens.get(drive_id), page_size)
+                new_tokens[drive_id] = delta_link
+                for item in items:
+                    ext_id = f"{drive_id}:{item.get('id', '')}"
+                    if "deleted" in item:  # /delta tombstone
+                        yield SourceDocument(
+                            source_id=self.source.id,
+                            provider="sharepoint",
+                            external_id=ext_id,
+                            title="",
+                            content="",
+                            deleted=True,
+                        )
+                        continue
+                    if "file" not in item:  # folders, the drive root, etc.
+                        continue
+                    if not item_passes(item, None, allowed, max_bytes):
                         continue
                     data = client.download_item(drive_id, item["id"])
                     text = extract_text(
@@ -274,18 +310,16 @@ class SharePointConnector(Connector):
                     yield item_to_document(self.source.id, drive_id, item, text, kind)
         finally:
             client.close()
+        # Only reached on a clean pass; persisted verbatim as the next cursor.
+        self._next_cursor_value = json.dumps(new_tokens)
 
-    def list_external_ids(self) -> set[str]:
-        client = self._client()
-        page_size = int(self.source.opt("page_size", 200))
-        ids: set[str] = set()
-        try:
-            for drive_id, _kind in self._resolve_drives(client):
-                for item in client.iter_drive_items(drive_id, page_size):
-                    ids.add(f"{drive_id}:{item['id']}")
-        finally:
-            client.close()
-        return ids
+    def next_cursor(self) -> str | None:
+        return self._next_cursor_value
+
+    def list_external_ids(self) -> set[str] | None:
+        # Deletions come from the /delta feed (tombstones), so reconcile-prune is
+        # disabled for SharePoint — returning None opts out.
+        return None
 
     def healthcheck(self) -> bool:
         try:

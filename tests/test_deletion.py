@@ -73,33 +73,13 @@ def test_github_list_external_ids(monkeypatch: pytest.MonkeyPatch) -> None:
     }
 
 
-def test_sharepoint_list_external_ids(monkeypatch: pytest.MonkeyPatch) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if ":" in path and "/sites/" in path:
-            return httpx.Response(200, json={"id": "site-1"})
-        if path.endswith("/site-1/drives"):
-            return httpx.Response(200, json={"value": [{"id": "drive-1"}]})
-        if path.endswith("/drive-1/root/children"):
-            return httpx.Response(
-                200,
-                json={
-                    "value": [
-                        {"id": "i1", "name": "a.docx", "file": {}},
-                        {"id": "i2", "name": "b.pdf", "file": {}},
-                    ]
-                },
-            )
-        return httpx.Response(404, json={})
-
-    client = sp.MicrosoftGraphClient(
-        "https://graph.microsoft.com/v1.0", "T", transport=_mock(handler)
-    )
+def test_sharepoint_opts_out_of_reconcile_prune() -> None:
+    # SharePoint handles deletions via the /delta feed, so it opts out of the
+    # full-reconcile prune by returning None from list_external_ids.
     conn = sp.SharePointConnector(
         SourceConfig(id="s", provider="sharepoint", sites=["contoso.sharepoint.com:/sites/Apollo"])
     )
-    monkeypatch.setattr(conn, "_client", lambda: client)
-    assert conn.list_external_ids() == {"drive-1:i1", "drive-1:i2"}
+    assert conn.list_external_ids() is None
 
 
 # --------------------------------------------------------------------------- #
