@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    # Postgres+pgvector so the migrations apply cleanly and db-touching unit tests
+    # run. Ollama is NOT provided here, so the live integration tests self-skip via
+    # their _services_up() gate (Postgres up + Ollama down -> skipped).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: universal_rag
+          POSTGRES_USER: urag
+          POSTGRES_PASSWORD: urag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U urag -d universal_rag"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: universal_rag
+      POSTGRES_USER: urag
+      POSTGRES_PASSWORD: urag
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (+ Python 3.12)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type-check
+        run: uv run mypy src
+
+      - name: Apply migrations on fresh Postgres (migration smoke)
+        run: uv run urag db-init
+
+      - name: Tests
+        run: uv run pytest -p no:cacheprovider -q

@@ -1,0 +1,70 @@
+name: eval
+
+# Retrieval-quality gate. Heavier than `ci` (needs Postgres + Ollama), so it runs
+# nightly and on demand rather than on every PR.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  retrieval-eval:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: universal_rag
+          POSTGRES_USER: urag
+          POSTGRES_PASSWORD: urag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U urag -d universal_rag"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: universal_rag
+      POSTGRES_USER: urag
+      POSTGRES_PASSWORD: urag
+      OLLAMA_HOST: "http://localhost:11434"
+      EVAL_GEN_MODEL: "llama3.2:1b" # small local chat model for synthetic queries
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (+ Python 3.12)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Start Ollama and pull models
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          for i in $(seq 1 30); do curl -sf http://localhost:11434/api/tags && break; sleep 2; done
+          ollama pull nomic-embed-text
+          ollama pull "$EVAL_GEN_MODEL"
+
+      - name: Initialize schema + ingest the fixture corpus
+        run: |
+          cp eval/ci-config.yaml config/config.yaml
+          uv run urag db-init
+          uv run urag sync ci
+
+      # Synthesize a golden set from the fixture, set the baseline, and verify the
+      # harness runs clean against it. NOTE: hard regression-gating requires a
+      # human-curated golden + committed baseline (eval/golden.jsonl, eval/baseline.json);
+      # until those are committed this job is informational (regenerates the baseline).
+      - name: Generate golden set + baseline
+        run: |
+          uv run urag eval gen ci --n 12 --out eval/golden.jsonl
+          uv run urag eval run --update-baseline
+
+      - name: Run eval (gate on regression once a curated golden is committed)
+        run: uv run urag eval run

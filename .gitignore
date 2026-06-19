@@ -40,3 +40,7 @@ output/
 .DS_Store
 .idea/
 .vscode/
+
+# Generated eval artifacts (corpus-specific; CI regenerates)
+eval/golden.jsonl
+eval/baseline.json

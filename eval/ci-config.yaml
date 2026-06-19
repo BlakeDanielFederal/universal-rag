@@ -1,0 +1,17 @@
+# Config used by the nightly retrieval-eval CI job. Indexes the committed fixture
+# corpus (eval/fixture/) as a local source so the harness has a deterministic,
+# self-contained project to evaluate.
+defaults:
+  embedding_model: nomic-embed-text
+  chunk:
+    max_tokens: 256
+    overlap_tokens: 32
+
+projects:
+  - id: ci
+    name: "CI fixture"
+    description: "Deterministic local corpus for retrieval evaluation in CI."
+    sources:
+      - id: ci-local
+        provider: local
+        paths: ["eval/fixture"]
