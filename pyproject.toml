@@ -50,6 +50,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
     "mypy>=1.10",
+    "datasets>=2.19",  # eval: import BEIR / HF corpora as a testing corpus
 ]
 
 [build-system]

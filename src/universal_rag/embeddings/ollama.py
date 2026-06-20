@@ -33,12 +33,13 @@ class OllamaEmbedder:
         self.query_prefix = settings.embed_query_prefix if query_prefix is None else query_prefix
         self._client = ollama.Client(host=host or settings.ollama_host)
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed raw texts with no prefix applied."""
+    def embed(self, texts: list[str], *, batch_size: int = 64) -> list[list[float]]:
+        """Embed raw texts (no prefix), batched per request for throughput."""
         out: list[list[float]] = []
-        for text in texts:
-            resp = self._client.embeddings(model=self.model, prompt=text)
-            out.append(list(resp["embedding"]))
+        for start in range(0, len(texts), batch_size):
+            batch = texts[start : start + batch_size]
+            resp = self._client.embed(model=self.model, input=batch)
+            out.extend(list(v) for v in resp["embeddings"])
         return out
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

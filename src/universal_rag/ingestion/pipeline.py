@@ -31,7 +31,7 @@ from universal_rag.connectors.base import Connector, SourceDocument
 from universal_rag.db.models import Chunk, Document, Project, Source, SyncState
 from universal_rag.db.session import get_session
 from universal_rag.embeddings import OllamaEmbedder
-from universal_rag.ingestion.chunking import chunk_text
+from universal_rag.ingestion.chunking import TextChunk, chunk_text
 
 log = structlog.get_logger("universal_rag.ingestion")
 
@@ -167,6 +167,82 @@ class IngestionPipeline:
         row.embedding_model = self.embedder.model
         row.chunk_scheme = self.scheme()
         return self._write_chunks(session, row, row.body)
+
+    def bulk_index(
+        self,
+        session: Session,
+        project_id: str,
+        source_id: str,
+        docs: list[SourceDocument],
+        *,
+        store_body: bool = True,
+        embed_batch: int = 128,
+    ) -> tuple[int, int]:
+        """Insert many documents at once, embedding chunks in large cross-document
+        batches (one Ollama call per `embed_batch` chunks). For bulk corpus imports
+        where per-document embedding would be far too slow. Returns (docs, chunks).
+
+        This is an insert-only fast path (no hash-skip / upsert) — intended for a
+        fresh corpus. Caller owns the transaction (commit per page).
+        """
+        model, scheme = self.embedder.model, self.scheme()
+        pending: list[tuple[Document, TextChunk]] = []  # (row, chunk)
+        texts: list[str] = []
+        n_docs = n_chunks = 0
+
+        def flush() -> None:
+            nonlocal n_chunks
+            if not texts:
+                return
+            vectors = self.embedder.embed_documents(texts)
+            for (row, tc), vec in zip(pending, vectors, strict=True):
+                meta = {"title": row.title, "url": row.url, **(row.doc_metadata or {})}
+                session.add(
+                    Chunk(
+                        document_id=row.id,
+                        project_id=project_id,
+                        source_id=source_id,
+                        ordinal=tc.ordinal,
+                        content=tc.content,
+                        embedding=vec,
+                        embedding_model=model,
+                        chunk_scheme=scheme,
+                        chunk_metadata=meta,
+                    )
+                )
+            n_chunks += len(texts)
+            texts.clear()
+            pending.clear()
+
+        for doc in docs:
+            row = Document(
+                project_id=project_id,
+                source_id=source_id,
+                external_id=doc.external_id,
+                title=doc.title,
+                url=doc.url,
+                content_hash=_hash(doc.title, doc.content),
+                updated_at=doc.updated_at,
+                doc_metadata=doc.metadata,
+                body=doc.content if store_body else "",
+                embedding_model=model,
+                chunk_scheme=scheme,
+            )
+            session.add(row)
+            session.flush()  # assign row.id before its chunks reference it
+            n_docs += 1
+            for tc in chunk_text(
+                doc.content,
+                max_tokens=self.chunk_cfg.max_tokens,
+                overlap_tokens=self.chunk_cfg.overlap_tokens,
+                split=self.chunk_cfg.split,
+            ):
+                pending.append((row, tc))
+                texts.append(tc.content)
+                if len(texts) >= embed_batch:
+                    flush()
+        flush()
+        return n_docs, n_chunks
 
     def _delete_document(self, session: Session, source_id: str, external_id: str) -> int:
         """Hard-delete one document (and its chunks) by external_id. Returns 0/1."""

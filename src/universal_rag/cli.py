@@ -187,11 +187,35 @@ def eval_gen(
     rprint(f"[green]Wrote {len(items)} golden item(s) to {out}.[/green]")
 
 
+@eval_app.command("import-beir")
+def eval_import_beir(
+    dataset: str = typer.Argument(..., help="HF dataset id, e.g. BeIR/fiqa"),
+    project: str = typer.Argument(..., help="Project id to ingest into, e.g. fiqa"),
+    out: str = typer.Option("eval/golden.jsonl", help="Golden-set output path"),
+    qrels_split: str = typer.Option("test", help="qrels split for the golden set"),
+    max_docs: int = typer.Option(0, help="Limit corpus docs (0 = all; for quick tests)"),
+) -> None:
+    """Ingest a BEIR corpus + build a golden set from its queries/qrels."""
+    from universal_rag.eval.beir import import_beir
+    from universal_rag.eval.dataset import save_golden
+
+    rprint(f"[dim]Importing {dataset} → project '{project}' (bulk batched ingest)…[/dim]")
+    result, golden = import_beir(
+        dataset, project, qrels_splits=(qrels_split,), max_docs=max_docs
+    )
+    save_golden(golden, out)
+    rprint(
+        f"[green]✓[/green] {result.documents} docs / {result.chunks} chunks ingested; "
+        f"{result.golden_items} golden items → {out}"
+    )
+
+
 @eval_app.command("run")
 def eval_run(
     golden: str = typer.Option("eval/golden.jsonl", help="Golden-set JSONL path"),
     baseline: str = typer.Option("eval/baseline.json", help="Baseline metrics JSON path"),
     top_k: int = typer.Option(20, help="Retrieval depth"),
+    max_queries: int = typer.Option(0, help="Cap queries evaluated (0 = all; ~200 for rerank)"),
     update_baseline: bool = typer.Option(False, help="Write current metrics as the new baseline"),
 ) -> None:
     """Run retrieval metrics over the golden set and gate on the committed baseline."""
@@ -209,6 +233,8 @@ def eval_run(
     if not items:
         rprint(f"[yellow]No golden items in {golden}.[/yellow]")
         raise typer.Exit(code=1)
+    if max_queries > 0:
+        items = items[:max_queries]
     report = run_eval(items, judge=get_judge(), top_k=top_k)
     rprint(f"[bold]Eval over {report.n} item(s):[/bold]")
     for key, val in sorted(report.metrics.items()):
