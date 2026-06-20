@@ -20,6 +20,24 @@ uv run urag eval run --update-baseline
 uv run urag eval run
 ```
 
+## Or: import a labeled benchmark (BEIR) as the testing corpus
+
+Instead of synthesizing a golden set, import a standard retrieval benchmark with
+**real human relevance judgments** (qrels). Recommended: **BeIR/fiqa** (~58K
+financial docs):
+
+```bash
+uv run urag eval import-beir BeIR/fiqa fiqa            # ingest corpus + write golden.jsonl
+RERANK_BACKEND=none uv run urag eval run --max-queries 200 --update-baseline   # retrieval-only baseline
+uv run urag eval run --max-queries 200                 # default (cross-encoder rerank) vs baseline
+```
+
+`import-beir` ingests the corpus directly (no connector; `external_id` = corpus
+`_id`) and converts queries+qrels → `golden.jsonl` (`relevant_doc_ids` = qrels).
+A BEIR project supports `urag reindex` (rebuilds from stored bodies) but not
+`urag sync` (provider `beir` has no connector). Cap `--max-queries` (~200) to keep
+the cross-encoder rerank-eval practical on CPU.
+
 ## Metrics
 
 - **recall@k, nDCG@k, MRR** — pure, deterministic; the primary gate.

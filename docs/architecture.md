@@ -132,6 +132,9 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
       signature-aware re-embed + `urag reindex`; CI (`.github/workflows/`).
 - [x] **Roadmap M1** — default-on cross-encoder rerank (`bge-reranker-v2-m3`),
       weighted RRF, sentence-aware chunking option, MCP `filters` + API rerank knobs.
+- [x] **Testing corpus** — `urag eval import-beir BeIR/fiqa fiqa` (≈58K docs, real
+      qrels) via a batched embedder + `bulk_index`; `eval run --max-queries` caps
+      rerank-eval. Baselines/golden are environment-local (gitignored).
 - [ ] **Roadmap M2+** (eval-gated): Contextual-vs-Late bake-off; M3
       provenance/embedding upgrade (BGE-M3/Qwen3); M4 multi-hop.
 - [ ] SharePoint **Pages/News**; prune blast-radius cap; JS-rendered web pages.
