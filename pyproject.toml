@@ -27,6 +27,8 @@ dependencies = [
     "pypdf>=4.0",             # .pdf  -> text
     # --- Embeddings / LLM (local-first via Ollama) ---
     "ollama>=0.3",
+    # --- Reranking: self-hosted cross-encoder (pulls torch) ---
+    "sentence-transformers>=3.0",
     # --- Interfaces ---
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",

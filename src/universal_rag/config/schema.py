@@ -22,6 +22,7 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 class ChunkConfig(BaseModel):
     max_tokens: int = 512
     overlap_tokens: int = 64
+    split: Literal["word", "sentence"] = "word"  # changing this re-indexes (new scheme)
 
 
 class SyncConfig(BaseModel):

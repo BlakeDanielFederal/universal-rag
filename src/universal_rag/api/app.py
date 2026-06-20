@@ -23,6 +23,8 @@ from universal_rag import __version__
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 12
+    candidate_k: int | None = None  # pool size per arm before fusion/rerank
+    rerank: bool = True  # set false to skip the cross-encoder and return fused order
     source_ids: list[str] | None = None
     filters: dict[str, str] | None = None
 
@@ -84,9 +86,14 @@ def create_app() -> FastAPI:
 
     @app.post("/projects/{project_id}/query")
     def query(project_id: str, req: QueryRequest) -> QueryResponse:
-        from universal_rag.retrieval import HybridRetriever
+        from universal_rag.retrieval import HybridRetriever, NoopReranker
 
-        hits = HybridRetriever(top_k=req.top_k).search(
+        retriever = HybridRetriever(
+            top_k=req.top_k,
+            candidate_k=req.candidate_k,
+            reranker=None if req.rerank else NoopReranker(),
+        )
+        hits = retriever.search(
             req.query, project_id, source_ids=req.source_ids, filters=req.filters
         )
         results = [

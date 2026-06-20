@@ -77,8 +77,10 @@ class IngestionPipeline:
         self.chunk_cfg = chunk or ChunkConfig()
 
     def scheme(self) -> str:
-        """Chunking signature; changes here trigger a controlled re-index."""
-        return f"sliding-{self.chunk_cfg.max_tokens}-{self.chunk_cfg.overlap_tokens}"
+        """Chunking signature; changes here trigger a controlled re-index. Word mode
+        keeps the legacy 'sliding-' prefix so existing chunks aren't invalidated."""
+        prefix = "sliding" if self.chunk_cfg.split == "word" else self.chunk_cfg.split
+        return f"{prefix}-{self.chunk_cfg.max_tokens}-{self.chunk_cfg.overlap_tokens}"
 
     def _write_chunks(self, session: Session, row: Document, content: str) -> int:
         """Chunk + embed `content` into Chunk rows for an existing Document. Stamps
@@ -87,6 +89,7 @@ class IngestionPipeline:
             content,
             max_tokens=self.chunk_cfg.max_tokens,
             overlap_tokens=self.chunk_cfg.overlap_tokens,
+            split=self.chunk_cfg.split,
         )
         if not text_chunks:
             return 0

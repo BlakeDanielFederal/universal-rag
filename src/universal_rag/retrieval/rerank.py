@@ -1,9 +1,10 @@
-"""Optional reranking stage applied to the fused hybrid-retrieval candidates.
+"""Reranking stage applied to the fused hybrid-retrieval candidates.
 
-Default is a no-op (RRF order is already strong). When ``RERANK_MODEL`` is set we
-use a local Ollama chat model as a lightweight relevance judge — useful when exact
-ordering matters, at the cost of an extra local inference call. A true
-cross-encoder can be slotted in later behind the same ``Reranker`` protocol.
+Default backend is a self-hosted **cross-encoder** (sentence-transformers
+``bge-reranker-v2-m3``) — it scores each (query, passage) pair jointly, which is
+markedly more accurate than the RRF order alone. Alternatives behind the same
+``Reranker`` protocol: an Ollama LLM-judge, or a no-op (RRF order as-is). All are
+local-first / self-hostable.
 """
 
 from __future__ import annotations
@@ -12,9 +13,12 @@ import json
 import re
 from typing import TYPE_CHECKING, Protocol
 
+import structlog
+
 if TYPE_CHECKING:
     from universal_rag.retrieval.hybrid import RetrievedChunk
 
+log = structlog.get_logger("universal_rag.rerank")
 _JSON_ARRAY = re.compile(r"\[.*\]", re.DOTALL)
 
 
@@ -27,6 +31,45 @@ class NoopReranker:
 
     def rerank(self, query: str, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
         return candidates
+
+
+class CrossEncoderReranker:
+    """Self-hosted cross-encoder (sentence-transformers). Lazy-loads the model on
+    first use; if torch/the model can't be loaded, degrades to the fused order."""
+
+    def __init__(self, model: str = "BAAI/bge-reranker-v2-m3") -> None:
+        self.model = model
+        self._encoder = None  # lazy
+        self._broken = False
+
+    def _load(self):  # noqa: ANN202 - sentence_transformers types are optional
+        if self._encoder is None and not self._broken:
+            try:
+                from sentence_transformers import CrossEncoder
+
+                self._encoder = CrossEncoder(self.model)
+            except Exception as exc:
+                self._broken = True
+                log.warning("rerank.load_failed", model=self.model, error=str(exc))
+        return self._encoder
+
+    def rerank(self, query: str, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        if not candidates:
+            return candidates
+        encoder = self._load()
+        if encoder is None:
+            return candidates  # no model -> trust RRF
+        try:
+            scores = encoder.predict([(query, c.content) for c in candidates])
+        except Exception as exc:
+            log.warning("rerank.predict_failed", error=str(exc))
+            return candidates
+        ranked = sorted(zip(candidates, scores, strict=True), key=lambda cs: cs[1], reverse=True)
+        out: list[RetrievedChunk] = []
+        for chunk, score in ranked:
+            chunk.score = float(score)  # surface the cross-encoder score to clients
+            out.append(chunk)
+        return out
 
 
 class OllamaReranker:
@@ -67,8 +110,14 @@ class OllamaReranker:
         return [candidates[i] for i in order]
 
 
-def get_reranker(model: str | None = None) -> Reranker:
+def get_reranker() -> Reranker:
+    """Resolve the configured reranker. Default: cross-encoder (self-hosted)."""
     from universal_rag.config import get_settings
 
-    name = get_settings().rerank_model if model is None else model
-    return OllamaReranker(name) if name else NoopReranker()
+    s = get_settings()
+    backend = s.rerank_backend
+    if backend == "cross_encoder":
+        return CrossEncoderReranker(s.rerank_model or "BAAI/bge-reranker-v2-m3")
+    if backend == "ollama" and s.rerank_model:
+        return OllamaReranker(s.rerank_model)
+    return NoopReranker()

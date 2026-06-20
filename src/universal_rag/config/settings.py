@@ -23,11 +23,20 @@ class Settings(BaseSettings):
     postgres_password: str = "change-me"
     database_url: str | None = None  # explicit override wins
 
-    # --- Ollama (embeddings + optional retrieval reranker) ---
+    # --- Ollama (embeddings) ---
     ollama_host: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
-    # Optional retrieval reranker: an Ollama chat model used as a relevance judge.
-    # Blank -> no reranking (RRF order is used as-is).
+
+    # --- Retrieval ---
+    retrieval_top_k: int = 12  # final results returned
+    retrieval_candidate_k: int = 80  # pooled per arm before fusion + rerank
+    # Weighted Reciprocal Rank Fusion (equal by default; tune dense>sparse via eval).
+    rrf_dense_weight: float = 1.0
+    rrf_sparse_weight: float = 1.0
+    # Reranking. backend: cross_encoder (self-hosted, default) | ollama | none.
+    # rerank_model: cross_encoder -> HF id (blank uses bge-reranker-v2-m3);
+    #               ollama -> a chat model used as an LLM judge.
+    rerank_backend: str = "cross_encoder"
     rerank_model: str = ""
     # nomic-embed-text quality depends on task prefixes; set empty for models
     # (e.g. mxbai-embed-large) that don't use them.

@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
+from universal_rag.config import get_settings
 from universal_rag.db.models import Chunk
 from universal_rag.db.session import get_session
 from universal_rag.embeddings import OllamaEmbedder
@@ -45,28 +46,37 @@ class RetrievedChunk:
     metadata: dict[str, object] = field(default_factory=dict)
 
 
-def reciprocal_rank_fusion(ranked_id_lists: list[list[int]], *, k: int = 60) -> dict[int, float]:
-    """RRF: each list contributes 1/(k + rank) per item. Higher score = better."""
+def reciprocal_rank_fusion(
+    ranked_id_lists: list[list[int]], *, k: int = 60, weights: list[float] | None = None
+) -> dict[int, float]:
+    """Weighted RRF: list i contributes weights[i]/(k + rank) per item (weight 1.0
+    when unspecified). Higher score = better."""
     scores: dict[int, float] = {}
-    for ids in ranked_id_lists:
+    for idx, ids in enumerate(ranked_id_lists):
+        w = weights[idx] if weights is not None else 1.0
         for rank, cid in enumerate(ids):
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            scores[cid] = scores.get(cid, 0.0) + w / (k + rank + 1)
     return scores
 
 
 class HybridRetriever:
     def __init__(
         self,
-        top_k: int = 12,
-        candidate_k: int = 50,
+        top_k: int | None = None,
+        candidate_k: int | None = None,
         *,
         rrf_k: int = 60,
+        dense_weight: float | None = None,
+        sparse_weight: float | None = None,
         embedder: OllamaEmbedder | None = None,
         reranker: Reranker | None = None,
     ) -> None:
-        self.top_k = top_k
-        self.candidate_k = candidate_k
+        s = get_settings()
+        self.top_k = s.retrieval_top_k if top_k is None else top_k
+        self.candidate_k = s.retrieval_candidate_k if candidate_k is None else candidate_k
         self.rrf_k = rrf_k
+        self.dense_weight = s.rrf_dense_weight if dense_weight is None else dense_weight
+        self.sparse_weight = s.rrf_sparse_weight if sparse_weight is None else sparse_weight
         self.embedder = embedder or OllamaEmbedder()
         self.reranker = reranker or get_reranker()
 
@@ -119,7 +129,11 @@ class HybridRetriever:
             kw = self._keyword_ids(session, query, conds)
 
         rows = {r.id: r for r in (*sem, *kw)}
-        fused = reciprocal_rank_fusion([[r.id for r in sem], [r.id for r in kw]], k=self.rrf_k)
+        fused = reciprocal_rank_fusion(
+            [[r.id for r in sem], [r.id for r in kw]],
+            k=self.rrf_k,
+            weights=[self.dense_weight, self.sparse_weight],
+        )
 
         candidates: list[RetrievedChunk] = []
         for cid, score in sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[

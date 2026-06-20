@@ -40,15 +40,19 @@ def query_project(
     query: str,
     top_k: int = 12,
     source_ids: list[str] | None = None,
+    filters: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Hybrid-retrieve project-scoped chunks (semantic + keyword, RRF-fused).
+    """Hybrid-retrieve project-scoped chunks (semantic + keyword, RRF-fused, reranked).
 
-    Returns ranked, citation-ready chunks (title, url, source_id, content,
-    score). The caller composes any downstream output from these.
+    `filters` scopes by chunk metadata (e.g. {"status": "Done"} for Jira, {"space":
+    "APOLLO"} for Confluence). Returns ranked, citation-ready chunks (title, url,
+    source_id, content, score). The caller composes any downstream output from these.
     """
     from universal_rag.retrieval import HybridRetriever
 
-    hits = HybridRetriever(top_k=top_k).search(query, project_id, source_ids=source_ids)
+    hits = HybridRetriever(top_k=top_k).search(
+        query, project_id, source_ids=source_ids, filters=filters
+    )
     return [
         {
             "chunk_id": h.chunk_id,

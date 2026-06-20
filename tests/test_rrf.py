@@ -18,3 +18,14 @@ def test_rrf_rewards_agreement_across_lists() -> None:
 def test_rrf_higher_rank_scores_more() -> None:
     scores = reciprocal_rank_fusion([[10, 20, 30]], k=60)
     assert scores[10] > scores[20] > scores[30]
+
+
+def test_weighted_rrf_favors_the_weighted_arm() -> None:
+    dense = [1, 2]
+    sparse = [3, 4]
+    # equal weights: the two rank-0 items tie
+    eq = reciprocal_rank_fusion([dense, sparse])
+    assert eq[1] == eq[3]
+    # weight dense higher -> its rank-0 item outranks sparse's rank-0 item
+    weighted = reciprocal_rank_fusion([dense, sparse], weights=[0.8, 0.2])
+    assert weighted[1] > weighted[3]

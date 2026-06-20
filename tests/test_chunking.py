@@ -15,6 +15,17 @@ def test_short_text_is_one_chunk() -> None:
     assert chunks[0].content == "a short page about apollo"
 
 
+def test_sentence_mode_keeps_sentences_whole() -> None:
+    text = "First sentence here. Second sentence follows on. Third one ends it all now."
+    chunks = chunk_text(text, max_tokens=8, overlap_tokens=3, split="sentence")
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert c.content.strip()[-1] in ".!?"  # never cut mid-sentence
+    joined = " ".join(c.content for c in chunks)
+    assert "First sentence here." in joined
+    assert "Third one ends it all now." in joined
+
+
 def test_windows_overlap_and_ordinals_are_sequential() -> None:
     words = [f"w{i}" for i in range(25)]
     chunks = chunk_text(" ".join(words), max_tokens=10, overlap_tokens=3)
