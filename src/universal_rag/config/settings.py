@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     embed_doc_prefix: str = "search_document: "
     embed_query_prefix: str = "search_query: "
 
+    # Contextual Retrieval: local Ollama chat model that writes a per-chunk context
+    # blurb at ingest (required when a source/defaults set chunk.contextualize).
+    contextualize_model: str = ""
+
     # --- Evaluation harness (offline; not on the retrieval core path) ---
     # Ollama chat model used to synthesize the golden set (`urag eval gen`).
     eval_gen_model: str = ""

@@ -75,34 +75,61 @@ class IngestionPipeline:
     def __init__(self, embedder: OllamaEmbedder | None = None, chunk: ChunkConfig | None = None):
         self.embedder = embedder or OllamaEmbedder()
         self.chunk_cfg = chunk or ChunkConfig()
+        self.contextualizer = None
+        if self.chunk_cfg.contextualize:
+            from universal_rag.config import get_settings
+            from universal_rag.ingestion.contextualize import Contextualizer
+
+            model = get_settings().contextualize_model
+            if not model:
+                raise RuntimeError(
+                    "chunk.contextualize is on but CONTEXTUALIZE_MODEL is not set"
+                )
+            self.contextualizer = Contextualizer(model)
 
     def scheme(self) -> str:
         """Chunking signature; changes here trigger a controlled re-index. Word mode
         keeps the legacy 'sliding-' prefix so existing chunks aren't invalidated."""
-        prefix = "sliding" if self.chunk_cfg.split == "word" else self.chunk_cfg.split
+        if self.chunk_cfg.contextualize:
+            prefix = "contextual"
+        elif self.chunk_cfg.split == "word":
+            prefix = "sliding"
+        else:
+            prefix = self.chunk_cfg.split
         return f"{prefix}-{self.chunk_cfg.max_tokens}-{self.chunk_cfg.overlap_tokens}"
 
-    def _write_chunks(self, session: Session, row: Document, content: str) -> int:
-        """Chunk + embed `content` into Chunk rows for an existing Document. Stamps
-        the index signature. Reused by ingestion and re-index."""
-        text_chunks = chunk_text(
+    def _chunk(self, content: str) -> list[TextChunk]:
+        return chunk_text(
             content,
             max_tokens=self.chunk_cfg.max_tokens,
             overlap_tokens=self.chunk_cfg.overlap_tokens,
             split=self.chunk_cfg.split,
         )
+
+    def _index_text(self, body: str, chunk: TextChunk) -> str:
+        """The text that gets embedded, FTS-indexed, and stored for a chunk — the
+        contextualized form when Contextual Retrieval is on, else the raw chunk."""
+        if self.contextualizer is None:
+            return chunk.content
+        return self.contextualizer.contextualize(body, chunk.content)
+
+    def _write_chunks(self, session: Session, row: Document, content: str) -> int:
+        """Chunk + embed `content` into Chunk rows for an existing Document. Stamps
+        the index signature. Reused by ingestion and re-index."""
+        text_chunks = self._chunk(content)
         if not text_chunks:
             return 0
         meta = {"title": row.title, "url": row.url, **(row.doc_metadata or {})}
-        vectors = self.embedder.embed_documents([c.content for c in text_chunks])
-        for tc, vec in zip(text_chunks, vectors, strict=True):
+        index_texts = [self._index_text(content, tc) for tc in text_chunks]
+        vectors = self.embedder.embed_documents(index_texts)
+        for tc, text, vec in zip(text_chunks, index_texts, vectors, strict=True):
             session.add(
                 Chunk(
                     document_id=row.id,
                     project_id=row.project_id,
                     source_id=row.source_id,
                     ordinal=tc.ordinal,
-                    content=tc.content,
+                    content=text,
                     embedding=vec,
                     embedding_model=self.embedder.model,
                     chunk_scheme=self.scheme(),
@@ -186,7 +213,7 @@ class IngestionPipeline:
         fresh corpus. Caller owns the transaction (commit per page).
         """
         model, scheme = self.embedder.model, self.scheme()
-        pending: list[tuple[Document, TextChunk]] = []  # (row, chunk)
+        pending: list[tuple[Document, int, str]] = []  # (row, ordinal, index_text)
         texts: list[str] = []
         n_docs = n_chunks = 0
 
@@ -195,15 +222,15 @@ class IngestionPipeline:
             if not texts:
                 return
             vectors = self.embedder.embed_documents(texts)
-            for (row, tc), vec in zip(pending, vectors, strict=True):
+            for (row, ordinal, text), vec in zip(pending, vectors, strict=True):
                 meta = {"title": row.title, "url": row.url, **(row.doc_metadata or {})}
                 session.add(
                     Chunk(
                         document_id=row.id,
                         project_id=project_id,
                         source_id=source_id,
-                        ordinal=tc.ordinal,
-                        content=tc.content,
+                        ordinal=ordinal,
+                        content=text,
                         embedding=vec,
                         embedding_model=model,
                         chunk_scheme=scheme,
@@ -231,14 +258,9 @@ class IngestionPipeline:
             session.add(row)
             session.flush()  # assign row.id before its chunks reference it
             n_docs += 1
-            for tc in chunk_text(
-                doc.content,
-                max_tokens=self.chunk_cfg.max_tokens,
-                overlap_tokens=self.chunk_cfg.overlap_tokens,
-                split=self.chunk_cfg.split,
-            ):
-                pending.append((row, tc))
-                texts.append(tc.content)
+            for tc in self._chunk(doc.content):
+                pending.append((row, tc.ordinal, self._index_text(doc.content, tc)))
+                texts.append(pending[-1][2])
                 if len(texts) >= embed_batch:
                     flush()
         flush()

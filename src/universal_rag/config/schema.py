@@ -23,6 +23,7 @@ class ChunkConfig(BaseModel):
     max_tokens: int = 512
     overlap_tokens: int = 64
     split: Literal["word", "sentence"] = "word"  # changing this re-indexes (new scheme)
+    contextualize: bool = False  # Contextual Retrieval (needs CONTEXTUALIZE_MODEL)
 
 
 class SyncConfig(BaseModel):

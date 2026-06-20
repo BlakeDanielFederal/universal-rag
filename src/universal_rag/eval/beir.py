@@ -119,3 +119,85 @@ def _ingested_doc_ids(source_id: str) -> set[str]:
         return set(
             session.scalars(select(Document.external_id).where(Document.source_id == source_id))
         )
+
+
+def import_beir_subset(
+    dataset: str,
+    project_id: str,
+    base_golden: list[GoldenItem],
+    *,
+    distractors: int = 2000,
+    contextualize: bool = False,
+    page: int = 500,
+) -> tuple[ImportResult, list[GoldenItem]]:
+    """Ingest a *curated subset* of `dataset` for a tractable bake-off: every doc
+    relevant to `base_golden` + the first `distractors` non-relevant corpus docs
+    (deterministic, so the subset is identical across runs). `contextualize=True`
+    builds the index with Contextual Retrieval. Returns the golden re-scoped to
+    `project_id`."""
+    from datasets import load_dataset
+
+    from universal_rag.config.schema import ChunkConfig
+
+    sid = f"{project_id}-corpus"
+    pipeline = IngestionPipeline(chunk=ChunkConfig(contextualize=contextualize))
+    relevant = {d for item in base_golden for d in item.relevant_doc_ids}
+
+    with get_session() as session:
+        if session.get(Project, project_id) is None:
+            session.add(Project(id=project_id, name=f"BEIR subset {dataset}", description=dataset))
+        if session.get(Source, sid) is None:
+            session.add(
+                Source(id=sid, project_id=project_id, provider="beir", config={"dataset": dataset})
+            )
+
+    corpus = load_dataset(dataset, "corpus", split="corpus")
+    total_docs = total_chunks = 0
+    n_distract = 0
+    batch: list[SourceDocument] = []
+
+    def _flush(docs: list[SourceDocument]) -> None:
+        nonlocal total_docs, total_chunks
+        if not docs:
+            return
+        with get_session() as session:
+            d, c = pipeline.bulk_index(session, project_id, sid, docs)
+        total_docs += d
+        total_chunks += c
+
+    for row in corpus:
+        cid = str(row["_id"])
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        if cid not in relevant:
+            if n_distract >= distractors:
+                continue
+            n_distract += 1
+        batch.append(
+            SourceDocument(
+                source_id=sid,
+                provider="beir",
+                external_id=cid,
+                title=row.get("title") or "",
+                content=text,
+                metadata={"doc_type": "beir", "dataset": dataset},
+            )
+        )
+        if len(batch) >= page:
+            _flush(batch)
+            batch = []
+    _flush(batch)
+
+    ingested = _ingested_doc_ids(sid)
+    golden = [
+        GoldenItem(
+            query=item.query,
+            project_id=project_id,
+            relevant_doc_ids=[d for d in item.relevant_doc_ids if d in ingested],
+            ideal_answer=item.ideal_answer,
+        )
+        for item in base_golden
+    ]
+    golden = [g for g in golden if g.relevant_doc_ids]
+    return ImportResult(project_id, sid, total_docs, total_chunks, len(golden)), golden

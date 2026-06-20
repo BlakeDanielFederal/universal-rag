@@ -200,12 +200,41 @@ def eval_import_beir(
     from universal_rag.eval.dataset import save_golden
 
     rprint(f"[dim]Importing {dataset} → project '{project}' (bulk batched ingest)…[/dim]")
-    result, golden = import_beir(
-        dataset, project, qrels_splits=(qrels_split,), max_docs=max_docs
-    )
+    result, golden = import_beir(dataset, project, qrels_splits=(qrels_split,), max_docs=max_docs)
     save_golden(golden, out)
     rprint(
         f"[green]✓[/green] {result.documents} docs / {result.chunks} chunks ingested; "
+        f"{result.golden_items} golden items → {out}"
+    )
+
+
+@eval_app.command("import-beir-subset")
+def eval_import_beir_subset(
+    dataset: str = typer.Argument(..., help="HF dataset id, e.g. BeIR/fiqa"),
+    project: str = typer.Argument(..., help="Project id to ingest the subset into"),
+    from_golden: str = typer.Option(
+        ..., "--from", help="Existing golden JSONL to draw queries from"
+    ),
+    queries: int = typer.Option(200, help="Use the first N queries"),
+    distractors: int = typer.Option(2000, help="Non-relevant docs to add as noise"),
+    contextualize: bool = typer.Option(
+        False, "--contextualize", help="Build with Contextual Retrieval"
+    ),
+    out: str = typer.Option("eval/golden_subset.jsonl", help="Output golden path"),
+) -> None:
+    """Ingest a curated subset (relevant docs + distractors) for a tractable bake-off."""
+    from universal_rag.eval.beir import import_beir_subset
+    from universal_rag.eval.dataset import load_golden, save_golden
+
+    base = load_golden(from_golden)[: queries if queries > 0 else None]
+    mode = "contextual" if contextualize else "sliding"
+    rprint(f"[dim]Subset of {dataset} → '{project}' ({mode}, {len(base)} queries)…[/dim]")
+    result, golden = import_beir_subset(
+        dataset, project, base, distractors=distractors, contextualize=contextualize
+    )
+    save_golden(golden, out)
+    rprint(
+        f"[green]✓[/green] {result.documents} docs / {result.chunks} chunks; "
         f"{result.golden_items} golden items → {out}"
     )
 
