@@ -130,8 +130,10 @@ side** — by design, this repo neither prompts an LLM nor renders artifacts.
       (recall@k/nDCG/MRR, doc-level golden, optional judge, `urag eval gen|run`);
       `documents.body` + `embedding_model`/`chunk_scheme` signature (migration `0002`);
       signature-aware re-embed + `urag reindex`; CI (`.github/workflows/`).
-- [ ] **Roadmap M1+** (eval-gated): cross-encoder rerank, weighted RRF, chunk tuning;
-      M2 Contextual-vs-Late bake-off; M3 provenance/embedding upgrade; M4 multi-hop.
+- [x] **Roadmap M1** — default-on cross-encoder rerank (`bge-reranker-v2-m3`),
+      weighted RRF, sentence-aware chunking option, MCP `filters` + API rerank knobs.
+- [ ] **Roadmap M2+** (eval-gated): Contextual-vs-Late bake-off; M3
+      provenance/embedding upgrade (BGE-M3/Qwen3); M4 multi-hop.
 - [ ] SharePoint **Pages/News**; prune blast-radius cap; JS-rendered web pages.
 - [x] **Alembic migrations** (`0001`+`0002`; `db-init` = `alembic upgrade head`).
 - [x] **In-process scheduler** (`scheduler.py` / `urag serve-scheduler`) — runs each
@@ -218,10 +220,12 @@ flowchart LR
     Q --> KW[keyword arm<br/>websearch_to_tsquery FTS / GIN]
     SCOPE[project_id + source_ids<br/>+ metadata filters] --> SEM
     SCOPE --> KW
-    SEM --> RRF[Reciprocal Rank Fusion]
+    SEM --> RRF[weighted Reciprocal Rank Fusion<br/>candidate_k per arm]
     KW --> RRF
-    RRF --> RR{RERANK_MODEL?}
-    RR -->|set| LLM[Ollama LLM judge]
-    RR -->|unset| TOPK[top_k RetrievedChunks]
+    RRF --> RR{rerank_backend}
+    RR -->|cross_encoder default| CE[cross-encoder<br/>bge-reranker-v2-m3]
+    RR -->|ollama| LLM[Ollama LLM judge]
+    RR -->|none| TOPK[top_k RetrievedChunks]
+    CE --> TOPK
     LLM --> TOPK
 ```
